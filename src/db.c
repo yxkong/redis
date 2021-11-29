@@ -57,12 +57,15 @@ robj *lookupKey(redisDb *db, robj *key) {
 
 robj *lookupKeyRead(redisDb *db, robj *key) {
     robj *val;
-
+    //校验是否过期，如果是主库，过期删除key
     expireIfNeeded(db,key);
+    //不管结果，直接查，查到就返回
     val = lookupKey(db,key);
+    //为空，miss计数
     if (val == NULL)
         server.stat_keyspace_misses++;
     else
+        //命中计数
         server.stat_keyspace_hits++;
     return val;
 }
@@ -73,7 +76,9 @@ robj *lookupKeyWrite(redisDb *db, robj *key) {
 }
 
 robj *lookupKeyReadOrReply(redisClient *c, robj *key, robj *reply) {
+    //查找key并读取
     robj *o = lookupKeyRead(c->db, key);
+    //不存在时的响应
     if (!o) addReply(c,reply);
     return o;
 }
@@ -807,12 +812,14 @@ void propagateExpire(redisDb *db, robj *key) {
 }
 
 int expireIfNeeded(redisDb *db, robj *key) {
+    // 返回key的过期时间，如果这个key没有设置过期时间返回-1
     mstime_t when = getExpire(db,key);
     mstime_t now;
 
+    //key没有设置过期时间，返回0
     if (when < 0) return 0; /* No expire for this key */
 
-    /* Don't expire anything while loading. It will be done later. */
+    //持久化机制如果在loading，返回0
     if (server.loading) return 0;
 
     /* If we are in the context of a Lua script, we claim that time is
@@ -820,6 +827,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
+    //获取当前时间
     now = server.lua_caller ? server.lua_time_start : mstime();
 
     /* If we are running in the context of a slave, return ASAP:
@@ -829,16 +837,22 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
+    //如果不是master节点，过期返回1，未过期返回0
     if (server.masterhost != NULL) return now > when;
 
     /* Return when this key has not expired */
+    //未过期返回0
     if (now <= when) return 0;
 
     /* Delete the key */
+    // 过期key计数
     server.stat_expiredkeys++;
+    //将过期机制同步到从库
     propagateExpire(db,key);
+    //发布过期事件
     notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,
         "expired",key,db->id);
+    //返回删除结果
     return dbDelete(db,key);
 }
 

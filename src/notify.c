@@ -99,8 +99,10 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     char buf[24];
 
     /* If notifications for this class of events are off, return ASAP. */
+    //该类型的事件通知是否关闭？关闭则返回
     if (!(server.notify_keyspace_events & type)) return;
 
+    //创建string类型的eventobj
     eventobj = createStringObject(event,strlen(event));
 
     /* __keyspace@<db>__:<key> <event> notifications. */

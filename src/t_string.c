@@ -145,13 +145,17 @@ void psetexCommand(redisClient *c) {
 int getGenericCommand(redisClient *c) {
     robj *o;
 
+    // 查找key，如果没有找到，就直接返回
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL)
         return REDIS_OK;
 
+    // key不为string类型
     if (o->type != REDIS_STRING) {
+        // 返回异常
         addReply(c,shared.wrongtypeerr);
         return REDIS_ERR;
     } else {
+        //key为stirng类型，添加到回复队列
         addReplyBulk(c,o);
         return REDIS_OK;
     }

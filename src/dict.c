@@ -399,25 +399,42 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
     dictEntry *he, *prevHe;
     int table;
 
+    /**
+     * d 为一个2包含两个全局hash表的数组
+     * ht[0]为正常存储的全局hash表
+     */
+    //正常存储的全局hash表里数量为0，没必要删除
     if (d->ht[0].size == 0) return DICT_ERR; /* d->ht[0].table is NULL */
+    // 如果正在进行rehash
     if (dictIsRehashing(d)) _dictRehashStep(d);
+    //获取到key的hash
     h = dictHashKey(d, key);
 
+    //遍历两次，从两个hash表中获取
     for (table = 0; table <= 1; table++) {
+        // 计算出在hash表中的位置
         idx = h & d->ht[table].sizemask;
+        //获取到hash的所在位的对象
         he = d->ht[table].table[idx];
+        //上一个节点
         prevHe = NULL;
+        //遍历链表
         while(he) {
+            // 比较key，相等就返回
             if (dictCompareKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
+                //链表删除
                 if (prevHe)
+                    //前驱节点存在，则将前驱节点的next设置为当前节点的next节点
                     prevHe->next = he->next;
                 else
                     d->ht[table].table[idx] = he->next;
-                if (!nofree) {
+                if (!nofree) {//默认为0
+                    //释放key和val
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
                 }
+                //释放当前节点
                 zfree(he);
                 d->ht[table].used--;
                 return DICT_OK;
