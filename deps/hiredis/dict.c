@@ -132,6 +132,15 @@ static int dictExpand(dict *ht, unsigned long size) {
 }
 
 /* Add an element to the target hash table */
+
+/**
+ * @brief 添加key 和robj到hash表中
+ * 
+ * @param ht hash表
+ * @param key 具体的引用
+ * @param val 
+ * @return int 
+ */
 static int dictAdd(dict *ht, void *key, void *val) {
     int index;
     dictEntry *entry;
@@ -142,13 +151,18 @@ static int dictAdd(dict *ht, void *key, void *val) {
         return DICT_ERR;
 
     /* Allocates the memory and stores key */
+    //申请一个dictEntry结构体空间，占用24字节
     entry = malloc(sizeof(*entry));
+    //采用头插法
     entry->next = ht->table[index];
+    //重新将entry放入对应的hash桶中
     ht->table[index] = entry;
 
-    /* Set the hash entry fields. */
+    //entry存储的是key是sds字符串
     dictSetHashKey(ht, entry, key);
+    //将 robj放入到对应的entry里
     dictSetHashVal(ht, entry, val);
+    //used+1
     ht->used++;
     return DICT_OK;
 }
@@ -179,27 +193,49 @@ static int dictReplace(dict *ht, void *key, void *val) {
 }
 
 /* Search and remove an element */
+/**
+ * @brief 查询并删除元素
+ * 
+ * @param ht hash列表typedef struct dict 
+ * @param key 数据库key
+ * @return int 
+ */
 static int dictDelete(dict *ht, const void *key) {
     unsigned int h;
     dictEntry *de, *prevde;
 
+    // 在2.8 中是两个hash表放到一个
+    //正常存储的全局hash表里数量为0，没必要删除
     if (ht->size == 0)
         return DICT_ERR;
+    //计算索引位置
     h = dictHashKey(ht, key) & ht->sizemask;
+    //获取到对应的链表
     de = ht->table[h];
 
     prevde = NULL;
+    //遍历链表
     while(de) {
         if (dictCompareHashKeys(ht,key,de->key)) {
             /* Unlink the element from the list */
+            //删除节点
             if (prevde)
                 prevde->next = de->next;
             else
                 ht->table[h] = de->next;
 
+            
+            /**
+             * 把key和val给ht.privdata
+             * ht.type 为dictType
+             * dictType.keyDestructor(ht.privdata,key)
+             * dictType.valDestructor(ht.privdata,val)
+             */
             dictFreeEntryKey(ht,de);
             dictFreeEntryVal(ht,de);
+            //释放要删除的节点
             free(de);
+            //使用-1
             ht->used--;
             return DICT_OK;
         }
@@ -239,19 +275,30 @@ static void dictRelease(dict *ht) {
     _dictClear(ht);
     free(ht);
 }
-
+/**
+ * @brief 根据String类型的key 从全局hash表中获取dictEntry
+ * 
+ * @param ht 全局hash表
+ * @param key 
+ * @return dictEntry* 
+ */
 static dictEntry *dictFind(dict *ht, const void *key) {
     dictEntry *he;
     unsigned int h;
 
     if (ht->size == 0) return NULL;
+    //通过key获取hash，并计算出在hash桶中的位置
     h = dictHashKey(ht, key) & ht->sizemask;
+    //获取对应链表的头节点
     he = ht->table[h];
     while(he) {
+        // 比较key
         if (dictCompareHashKeys(ht, key, he->key))
             return he;
+        //迭代
         he = he->next;
     }
+    //找不到返回null
     return NULL;
 }
 

@@ -52,7 +52,17 @@ void updateLFU(robj *val) {
 /* Low level key lookup API, not actually called directly from commands
  * implementations that should instead rely on lookupKeyRead(),
  * lookupKeyWrite() and lookupKeyReadWithFlags(). */
+
+/**
+ * @brief 根据key 从全局hash表中查询
+ * 
+ * @param db 
+ * @param key key的robj对象
+ * @param flags 
+ * @return robj* 
+ */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
+
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
@@ -99,11 +109,12 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * expiring our key via DELs in the replication link. */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
-
+    // expireIfNeeded 返回1，表示不存在（过期或删除）
     if (expireIfNeeded(db,key) == 1) {
         /* Key expired. If we are in the context of a master, expireIfNeeded()
          * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
+        //从节点的情况下会miss自增
         if (server.masterhost == NULL) {
             server.stat_keyspace_misses++;
             return NULL;
@@ -130,10 +141,13 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
             return NULL;
         }
     }
+    //根据key获取val
     val = lookupKey(db,key,flags);
     if (val == NULL)
+        // val为null miss+1
         server.stat_keyspace_misses++;
     else
+        // val 存在 命中+1
         server.stat_keyspace_hits++;
     return val;
 }
@@ -155,7 +169,9 @@ robj *lookupKeyWrite(redisDb *db, robj *key) {
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
+    //查找key并读取
     robj *o = lookupKeyRead(c->db, key);
+    // 为空添加回复
     if (!o) addReply(c,reply);
     return o;
 }
@@ -170,10 +186,20 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * counter of the value if needed.
  *
  * The program is aborted if the key already exists. */
+
+/**
+ * @brief 将对应的key 和 redisObject对象塞入到全局hash表中
+ * 
+ * @param db 
+ * @param key 
+ * @param val 
+ */
 void dbAdd(redisDb *db, robj *key, robj *val) {
+    //生成一个固定长度的sds字符串作为key（因为key没有动态扩容，所以不需要多申请空间）
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);
 
+    // 输出信息
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST ||
         val->type == OBJ_ZSET)
@@ -191,10 +217,13 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
 
     serverAssertWithInfo(NULL,key,de != NULL);
     dictEntry auxentry = *de;
+    //获取原始值
     robj *old = dictGetVal(de);
+    // 过期策略
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
+    //重新设置值
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
@@ -214,9 +243,12 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  *
  * All the new keys in the database should be created via this interface. */
 void setKey(redisDb *db, robj *key, robj *val) {
+    // 有无key
     if (lookupKeyWrite(db,key) == NULL) {
+        //没有key，直接添加
         dbAdd(db,key,val);
     } else {
+        //有key，覆盖(把原来的val删了，然后又重新写)
         dbOverwrite(db,key,val);
     }
     incrRefCount(val);
@@ -267,12 +299,19 @@ robj *dbRandomKey(redisDb *db) {
     }
 }
 
-/* Delete a key, value, and associated expiration entry if any, from the DB */
+/**
+ * @brief 同步删除
+ * Delete a key, value, and associated expiration entry if any, from the DB 
+ * @param db 
+ * @param key 
+ * @return int 
+ */
 int dbSyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     if (dictDelete(db->dict,key->ptr) == DICT_OK) {
+        //启动了从库，就同步过去
         if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
     } else {
@@ -1093,12 +1132,14 @@ long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
     /* No expire? return ASAP */
+    //没有设置过期时间，返回-1
     if (dictSize(db->expires) == 0 ||
        (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
     serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    //返回的具体过期时间
     return dictGetSignedIntegerVal(de);
 }
 
@@ -1127,13 +1168,23 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
 }
 
 /* Check if the key is expired. */
+/**
+ * @brief 
+ * 
+ * @param db redisDb对象
+ * @param key 查询的key
+ * @return int 0 表示未过期（需要查库获取值），1表示过期
+ */
 int keyIsExpired(redisDb *db, robj *key) {
+    //获取key有没有设置过期时间，-1 表示没有设置，有则返回具体的过期时间
     mstime_t when = getExpire(db,key);
     mstime_t now;
 
+    // 没有设置过期返回0 
     if (when < 0) return 0; /* No expire for this key */
 
     /* Don't expire anything while loading. It will be done later. */
+    // 持久化在loading，直接返回0
     if (server.loading) return 0;
 
     /* If we are in the context of a Lua script, we pretend that time is
@@ -1141,6 +1192,7 @@ int keyIsExpired(redisDb *db, robj *key) {
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
+    //查找当前时间
     if (server.lua_caller) {
         now = server.lua_time_start;
     }
@@ -1161,6 +1213,7 @@ int keyIsExpired(redisDb *db, robj *key) {
 
     /* The key expired if the current (virtual or real) time is greater
      * than the expire time of the key. */
+    //当前时间和过期时间比较，过期返回1，不过期返回0
     return now > when;
 }
 
@@ -1183,7 +1236,16 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
+
+/**
+ * @brief 
+ * 
+ * @param db 
+ * @param key 
+ * @return int 返回0 表示存在，1表示不存在（过期或删除了）
+ */
 int expireIfNeeded(redisDb *db, robj *key) {
+    //key是否过期，0表示未过期，0假1真
     if (!keyIsExpired(db,key)) return 0;
 
     /* If we are running in the context of a slave, instead of
@@ -1194,13 +1256,18 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
+    //从节点，返回1，在外面有逻辑处理从节点
     if (server.masterhost != NULL) return 1;
 
     /* Delete the key */
+    //过期key计数
     server.stat_expiredkeys++;
+    //将过期数据同步到从库，同步以后会触发
     propagateExpire(db,key,server.lazyfree_lazy_expire);
+    //发布过期事件
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
+    //这和之前不同，同步删除或延迟删除，看redis的配置
     return server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
                                          dbSyncDelete(db,key);
 }

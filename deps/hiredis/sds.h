@@ -48,15 +48,23 @@ struct __attribute__ ((__packed__)) sdshdr5 {
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr8 {
+    //1字节
     uint8_t len; /* used */
+    //1字节
     uint8_t alloc; /* excluding the header and null terminator */
+    //1字节
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    //申请的数组长度
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
+    //2字节
     uint16_t len; /* used */
+    //2字节
     uint16_t alloc; /* excluding the header and null terminator */
+    //1字节
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    //申请的数组长度
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr32 {
@@ -66,8 +74,11 @@ struct __attribute__ ((__packed__)) sdshdr32 {
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr64 {
+    //4字节
     uint64_t len; /* used */
+    //4字节
     uint64_t alloc; /* excluding the header and null terminator */
+    //4字节
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };

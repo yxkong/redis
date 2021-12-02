@@ -43,10 +43,10 @@
 #define DICT_NOTUSED(V) ((void) V)
 
 typedef struct dictEntry {
-    void *key;
-    void *val;
-    struct dictEntry *next;
-} dictEntry;
+    void *key;//64位系统占8字节  32位系统占4字节
+    void *val;//64位系统占8字节 32位系统占4字节
+    struct dictEntry *next; //64位系统占8字节 32位系统占4字节
+} dictEntry; //占24字节
 
 typedef struct dictType {
     unsigned int (*hashFunction)(const void *key);
@@ -97,7 +97,10 @@ typedef struct dictIterator {
     else \
         entry->key = (_key_); \
 } while(0)
-
+/**
+ * @brief 两个值比较
+ * 存在比较器，，就用对应的keyCompare
+ */
 #define dictCompareHashKeys(ht, key1, key2) \
     (((ht)->type->keyCompare) ? \
         (ht)->type->keyCompare((ht)->privdata, key1, key2) : \

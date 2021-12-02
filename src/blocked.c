@@ -607,26 +607,42 @@ void unblockClientWaitingData(client *c) {
  * made by a script or in the context of MULTI/EXEC.
  *
  * The list will be finally processed by handleClientsBlockedOnLists() */
+
+/**
+ * @brief 添加响应
+ * 1， 判断有无响应的意义，已取消不再响应，或者已经在响应缓冲区了，也不处理
+ * 2，防止多线程响应重复
+ * 3，加入到server的响应队列
+ * 4，同时加入到 影响缓冲区hash表
+ * @param db 
+ * @param key 
+ */
 void signalKeyAsReady(redisDb *db, robj *key) {
     readyList *rl;
 
     /* No clients blocking for this key? No need to queue it. */
+    // 如果key没有在队列里，表示这个key，没什么意义了（客户端主动取消），或者被别的处理了（这个不可能）
     if (dictFind(db->blocking_keys,key) == NULL) return;
 
     /* Key was already signaled? No need to queue it again. */
+    //已经存在输出缓冲区，也不再处理（响应相当于是write socket io，这块是多线程处理，如果处理了一次不再处理）
     if (dictFind(db->ready_keys,key) != NULL) return;
 
     /* Ok, we need to queue this key into server.ready_keys. */
+    //申请一个响应对象空间，并将key和结果赋值进去
     rl = zmalloc(sizeof(*rl));
     rl->key = key;
     rl->db = db;
+
     incrRefCount(key);
+    // 加入到响应队列队尾
     listAddNodeTail(server.ready_keys,rl);
 
     /* We also add the key in the db->ready_keys dictionary in order
      * to avoid adding it multiple times into a list with a simple O(1)
      * check. */
     incrRefCount(key);
+    // 添加到 响应缓冲区hash表中，方便以O(1)获取
     serverAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
 }
 

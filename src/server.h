@@ -614,14 +614,15 @@ typedef struct RedisModuleDigest {
 
 #define OBJ_SHARED_REFCOUNT INT_MAX
 typedef struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
+    unsigned type:4; //4位
+    unsigned encoding:4; //4位
+    // 24位
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;
-    void *ptr;
-} robj;
+    int refcount; //8字节
+    void *ptr; // 8字节
+} robj;//一个robj 占16字节
 
 /* Macro used to initialize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
@@ -646,12 +647,23 @@ typedef struct clientReplyBlock {
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
+
+/**
+ * @brief redis数据库描述
+ *  默认redis 的database有16个，默认指的是第0个database
+ */
 typedef struct redisDb {
+    //当前database的全局hash表
     dict *dict;                 /* The keyspace for this DB */
+    // 过期key的集合
     dict *expires;              /* Timeout of keys with a timeout set */
+    // 客户端输入缓冲区
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
+    // 用户记录放入响应队列的key，通过O(1)的方式能定位到，防止重复响应
     dict *ready_keys;           /* Blocked keys that received a PUSH */
+    // 事务
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+    // 数据库的id，默认为0 
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */

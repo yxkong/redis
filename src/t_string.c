@@ -156,14 +156,17 @@ void psetexCommand(client *c) {
 
 int getGenericCommand(client *c) {
     robj *o;
-
+    //为空直接返回
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL)
         return C_OK;
 
+    //不为空，
     if (o->type != OBJ_STRING) {
+        //添加异常回复
         addReply(c,shared.wrongtypeerr);
         return C_ERR;
     } else {
+        //添加到响应队列
         addReplyBulk(c,o);
         return C_OK;
     }

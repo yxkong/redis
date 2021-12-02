@@ -207,10 +207,12 @@ int hashTypeExists(robj *o, sds field) {
 int hashTypeSet(robj *o, sds field, sds value, int flags) {
     int update = 0;
 
+    //ziplist处理逻辑
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl, *fptr, *vptr;
 
         zl = o->ptr;
+        //获取ziplist的头节点
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
         if (fptr != NULL) {
             fptr = ziplistFind(fptr, (unsigned char*)field, sdslen(field), 1);
@@ -219,7 +221,7 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 vptr = ziplistNext(zl, fptr);
                 serverAssert(vptr != NULL);
                 update = 1;
-
+                //先删后插入
                 /* Delete value */
                 zl = ziplistDelete(zl, &vptr);
 
@@ -453,12 +455,22 @@ sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
     return sdsfromlonglong(vll);
 }
 
+/**
+ * @brief  推断类型
+ *   如果不存在就创建一个ziplist的hash
+ *   如果存在判断类型，不为hash，直接返回
+ * @param c 
+ * @param key 
+ * @return robj* 
+ */
 robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
     robj *o = lookupKeyWrite(c->db,key);
     if (o == NULL) {
+        //没有找到，创建hash
         o = createHashObject();
         dbAdd(c->db,key,o);
     } else {
+        // 不为hash影响错误
         if (o->type != OBJ_HASH) {
             addReply(c,shared.wrongtypeerr);
             return NULL;
@@ -536,15 +548,17 @@ void hsetCommand(client *c) {
     int i, created = 0;
     robj *o;
 
+    // 参数个数不对，直接异常
     if ((c->argc % 2) == 1) {
         addReplyError(c,"wrong number of arguments for HMSET");
         return;
     }
-
+    // 不是hash类型，直接返回
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
 
     for (i = 2; i < c->argc; i += 2)
+        // 创建hash的key val
         created += !hashTypeSet(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
 
     /* HMSET (deprecated) and HSET return value is different. */

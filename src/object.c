@@ -38,9 +38,19 @@
 
 /* ===================== Creation and parsing of objects ==================== */
 
+/**
+ * @brief 根据类型创建一个redisObject
+ * 
+ * @param type 
+ * @param ptr 
+ * @return robj* 
+ */
 robj *createObject(int type, void *ptr) {
+    //申请redisOject的空间
     robj *o = zmalloc(sizeof(*o));
+    //赋值
     o->type = type;
+    //默认raw编码
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
@@ -240,6 +250,7 @@ robj *createIntsetObject(void) {
 }
 
 robj *createHashObject(void) {
+    //默认申请一个13字节空间的压缩链表
     unsigned char *zl = ziplistNew();
     robj *o = createObject(OBJ_HASH, zl);
     o->encoding = OBJ_ENCODING_ZIPLIST;

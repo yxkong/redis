@@ -41,6 +41,12 @@
 
 const char *SDS_NOINIT = "SDS_NOINIT";
 
+/**
+ * @brief 返回对应sds结构体的长度
+ * 
+ * @param type sds类型
+ * @return int 
+ */
 static inline int sdsHdrSize(char type) {
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -57,6 +63,14 @@ static inline int sdsHdrSize(char type) {
     return 0;
 }
 
+/**
+ * @brief 根据字符串的长度创建选择sds的结构体类型
+ * < 32 SDS_TYPE_5
+ * < 256 SDS_TYPE_8
+ * < 65536 SDS_TYPE_16
+ * @param string_size 
+ * @return char 
+ */
 static inline char sdsReqType(size_t string_size) {
     if (string_size < 1<<5)
         return SDS_TYPE_5;
@@ -86,17 +100,29 @@ static inline char sdsReqType(size_t string_size) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
+
+/**
+ * @brief 初始化sds字符串
+ * 
+ * @param init 初始化字符串
+ * @param initlen 初始化字符串的长度
+ * @return sds 
+ */
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
+    //获取结构体的类型
     char type = sdsReqType(initlen);
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
+    // 修正sds类型，最小为SDS_TYPE_8
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
+    //计算对应sds类型结构体的size
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
     assert(hdrlen+initlen+1 > initlen); /* Catch size_t overflow */
+    // 申请空间（结构体类型长度+字符串长度+1）
     sh = s_malloc(hdrlen+initlen+1);
     if (init==SDS_NOINIT)
         init = NULL;
@@ -159,6 +185,7 @@ sds sdsnew(const char *init) {
 
 /* Duplicate an sds string. */
 sds sdsdup(const sds s) {
+    //生成一个固定长度的sds字符串
     return sdsnewlen(s, sdslen(s));
 }
 
