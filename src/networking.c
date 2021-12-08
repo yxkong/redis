@@ -83,6 +83,12 @@ void linkClient(client *c) {
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
+/**
+ * @brief 根据fd创建客户端信息
+ * 
+ * @param fd 
+ * @return client* 
+ */
 client *createClient(int fd) {
     client *c = zmalloc(sizeof(client));
 
@@ -663,6 +669,7 @@ int clientHasPendingReplies(client *c) {
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
+    // 根据fd创建客户端
     if ((c = createClient(fd)) == NULL) {
         serverLog(LL_WARNING,
             "Error registering fd event for the new client: %s (fd=%d)",
@@ -674,6 +681,8 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
+     
+     //超了maxclients，直接就不处理了
     if (listLength(server.clients) > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
@@ -747,6 +756,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        //接收命令处理
         acceptCommonHandler(cfd,0,cip);
     }
 }
@@ -844,6 +854,11 @@ void unlinkClient(client *c) {
     }
 }
 
+/**
+ * @brief 释放client客户端
+ * 
+ * @param c 
+ */
 void freeClient(client *c) {
     listNode *ln;
 

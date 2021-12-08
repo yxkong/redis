@@ -465,10 +465,29 @@ typedef long long ustime_t; /* microsecond time type. */
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
+/**
+ * @brief 字符串对象
+ */
 #define OBJ_STRING 0    /* String object. */
+/**
+ * @brief 列表对象
+ * 
+ */
 #define OBJ_LIST 1      /* List object. */
+/**
+ * @brief 集合对象
+ * 
+ */
 #define OBJ_SET 2       /* Set object. */
+/**
+ * @brief 有序集合对象
+ * 
+ */
 #define OBJ_ZSET 3      /* Sorted set object. */
+/**
+ * @brief 哈希对象
+ * 
+ */
 #define OBJ_HASH 4      /* Hash object. */
 
 /* The "module" object type is a special one that signals that the object
@@ -482,7 +501,12 @@ typedef long long ustime_t; /* microsecond time type. */
  * by a 64 bit module type ID, which has a 54 bits module-specific signature
  * in order to dispatch the loading to the right module, plus a 10 bits
  * encoding version. */
+
 #define OBJ_MODULE 5    /* Module object. */
+/**
+ * @brief 流对象
+ * 
+ */
 #define OBJ_STREAM 6    /* Stream object. */
 
 /* Extract encver / signature from a module type ID. */
@@ -596,14 +620,49 @@ typedef struct RedisModuleDigest {
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
+
+/**
+ * @brief sds
+ */
 #define OBJ_ENCODING_RAW 0     /* Raw representation */
+/**
+ * @brief long类型的整数
+ * 
+ */
 #define OBJ_ENCODING_INT 1     /* Encoded as integer */
+/**
+ * @brief 哈希表
+ */
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */
+/**
+ * @brief 压缩集合
+ * 
+ */
 #define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
+/**
+ * @brief 废弃了
+ * 
+ */
 #define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
+/**
+ * @brief 压缩列表
+ * 
+ */
 #define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
+/**
+ * @brief int集合
+ * 
+ */
 #define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
+/**
+ * @brief 跳跃表
+ * 
+ */
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
+/**
+ * @brief embstr编码的简单动态字符串
+ * 
+ */
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
@@ -613,14 +672,42 @@ typedef struct RedisModuleDigest {
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
 #define OBJ_SHARED_REFCOUNT INT_MAX
+
+/**
+ * @brief 
+ * OBJ_STRING -> OBJ_ENCODING_INT  使用整数值实现的字符串对象
+ * OBJ_STRING -> OBJ_ENCODING_RAW  使用sds实现的字符串对象
+ * OBJ_STRING -> OBJ_ENCODING_EMBSTR 使用embstr编码的sds实现的字符串
+ * OBJ_LIST  -> OBJ_ENCODING_ZIPLIST 使用压缩列表实现的列表
+ * OBJ_LIST  -> OBJ_ENCODING_LINKEDLIST  使用双端链表实现的列表
+ * OBJ_SET  -> OBJ_ENCODING_HT 使用字典实现的集合
+ * OBJ_SET  -> OBJ_ENCODING_INTSET 使用整数集合实现的集合
+ * OBJ_ZSET  -> OBJ_ENCODING_ZIPLIST 使用压缩列表实现的有序集合
+ * OBJ_ZSET  -> OBJ_ENCODING_SKIPLIST 使用跳表实现的有序集合
+ * OBJ_HASH  -> OBJ_ENCODING_HT  使用字典实现的hash
+ * OBJ_HASH  -> OBJ_ENCODING_ZIPLIST  使用压缩列表实现的hash
+ * OBJ_MODULE
+ * OBJ_STREAM -> OBJ_ENCODING_STREAM 使用stream实现
+ */
 typedef struct redisObject {
+    //robj存储的对象类型
     unsigned type:4; //4位
+    // 编码
     unsigned encoding:4; //4位
-    // 24位
+
+    /**
+     * @brief 24位 
+     * LRU的策略下：lru存储的是 秒级时间戳的低24位，约194天会溢出
+     * LFU的策略下：24位拆为两块，高16位(最大值65535)低8位（最大值255）
+     * 高16存储的是 存储的是分钟级&最大存储位的值，要溢出的话，需要65535%60%24 约 45天溢出
+     * 低8位存储的是近似统计位
+     * 在lookupKey
+     */
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount; //8字节
+    //引用次数，当为0的时候可以释放就，c语言没有垃圾回收的机制，通过这个可以释放空间
+    int refcount; //4字节
     void *ptr; // 8字节
 } robj;//一个robj 占16字节
 
@@ -814,7 +901,7 @@ struct sharedObjectsStruct {
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *zpopmin, *zpopmax, *emptyscan,
     *select[PROTO_SHARED_SELECT_CMDS],
-    *integers[OBJ_SHARED_INTEGERS],
+    *integers[OBJ_SHARED_INTEGERS], //共享robj，不启用LRU的情况下才有效
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[OBJ_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
     sds minstring, maxstring;
@@ -961,6 +1048,9 @@ struct redisServer {
     int config_hz;              /* Configured HZ value. May be different than
                                    the actual 'hz' field value if dynamic-hz
                                    is enabled. */
+    /**
+     * 默认值是10
+     */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
     dict *commands;             /* Command table */
@@ -1213,11 +1303,29 @@ struct redisServer {
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
+    /**
+     * @brief 最大链接数
+     * 
+     */
     unsigned int maxclients;            /* Max number of simultaneous clients */
+    /**
+     * @brief 最大内存，默认0，一旦开启，就会启用LRU
+
+     */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
+    /**
+     * @brief 内存淘汰策略，默认：MAXMEMORY_NO_EVICTION
+     */
     int maxmemory_policy;           /* Policy for key eviction */
+    /**
+     * @brief 随机采样经度，配置越大，LRU的精度越准确，默认5
+     */
     int maxmemory_samples;          /* Pricision of random sampling */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
+    /**
+     * 
+     * 计数衰减默认只为1
+     */
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     /* Blocked clients */
@@ -1954,6 +2062,11 @@ size_t getSlaveKeyWithExpireCount(void);
 
 /* evict.c -- maxmemory handling and LRU eviction. */
 void evictionPoolAlloc(void);
+/**
+ * @brief LFU 计数的初始值
+ * 1,用于防止新加入的高频访问数据在刚加入的时候由于没有累积优势，很容易被淘汰掉
+ * 2, 防止计算LRU的计算衰减（直接以1开始，概率只有10%，访问10次counter才+1）
+ */
 #define LFU_INIT_VAL 5
 unsigned long LFUGetTimeInMinutes(void);
 uint8_t LFULogIncr(uint8_t value);

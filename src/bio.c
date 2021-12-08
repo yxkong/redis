@@ -61,10 +61,26 @@
 #include "server.h"
 #include "bio.h"
 
+/**
+ * @brief 后端线程组
+ * 
+ */
 static pthread_t bio_threads[BIO_NUM_OPS];
+/**
+ * @brief 互斥锁组
+ * 
+ */
 static pthread_mutex_t bio_mutex[BIO_NUM_OPS];
+/**
+ * @brief 新任务条件变量
+ * 
+ */
 static pthread_cond_t bio_newjob_cond[BIO_NUM_OPS];
 static pthread_cond_t bio_step_cond[BIO_NUM_OPS];
+/**
+ * @brief 后台线程组处理的对应任务列表
+ * 
+ */
 static list *bio_jobs[BIO_NUM_OPS];
 /* The following array is used to hold the number of pending jobs for every
  * OP type. This allows us to export the bioPendingJobsOfType() API that is
@@ -72,6 +88,11 @@ static list *bio_jobs[BIO_NUM_OPS];
  * objects shared with the background thread. The main thread will just wait
  * that there are no longer jobs of this type to be executed before performing
  * the sensible operation. This data is also useful for reporting. */
+
+/**
+ * @brief 对应线程待处理的任务数
+ * 
+ */
 static unsigned long long bio_pending[BIO_NUM_OPS];
 
 /* This structure represents a background Job. It is only used locally to this
@@ -93,17 +114,32 @@ void lazyfreeFreeSlotsMapFromBioThread(zskiplist *sl);
 #define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 
 /* Initialize the background system, spawning the thread. */
+
+/**
+ * @brief 初始化后台线程
+ * 
+ */
 void bioInit(void) {
+    //创建线程的属性
     pthread_attr_t attr;
     pthread_t thread;
     size_t stacksize;
     int j;
 
     /* Initialization of state vars and objects */
+
+    /**
+     * @brief 根据后台线程的数量创建线程
+     * 
+     */
     for (j = 0; j < BIO_NUM_OPS; j++) {
+        //初始化一个NUll 的互斥锁
         pthread_mutex_init(&bio_mutex[j],NULL);
+        //新任务条件变量
         pthread_cond_init(&bio_newjob_cond[j],NULL);
+        //下一个执行的条件变量
         pthread_cond_init(&bio_step_cond[j],NULL);
+        //创建一个list
         bio_jobs[j] = listCreate();
         bio_pending[j] = 0;
     }
@@ -118,8 +154,14 @@ void bioInit(void) {
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
      * responsible of. */
+    
+    /**
+     * @brief 创建后端线程，并放入线程组
+     * 
+     */
     for (j = 0; j < BIO_NUM_OPS; j++) {
         void *arg = (void*)(unsigned long) j;
+        //创建线程，并启动bioProcessBackgroundJobs
         if (pthread_create(&thread,&attr,bioProcessBackgroundJobs,arg) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize Background Jobs.");
             exit(1);
@@ -128,6 +170,29 @@ void bioInit(void) {
     }
 }
 
+/**
+ * @brief linux 线程操作
+ * pthread_create 创建线程
+ * 
+ * 
+ * ## 互斥锁操作
+ * pthread_mutex_init  创建互斥锁
+ * pthread_cond_init  只有等待这个条件发生线程才继续执行
+ * pthread_mutex_lock  获取互斥锁
+ * phtread_mutex_unlock 解除互斥锁
+ * pthread_cond_wait  阻塞在条件变量上
+ * pthread_cond_signal 解除条件变量上的阻塞
+ * pthread_cond_broadcast 唤醒所有被阻塞的线程
+ */
+
+/**
+ * @brief 创建后台任务
+ * 
+ * @param type 
+ * @param arg1 
+ * @param arg2 
+ * @param arg3 
+ */
 void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     struct bio_job *job = zmalloc(sizeof(*job));
 
@@ -135,10 +200,15 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     job->arg1 = arg1;
     job->arg2 = arg2;
     job->arg3 = arg3;
+    //获取互斥锁，确保一次只能执行一个
     pthread_mutex_lock(&bio_mutex[type]);
+    //添加到对应类型的后台队列里
     listAddNodeTail(bio_jobs[type],job);
+    //待处理任务数+1
     bio_pending[type]++;
+    //解除bio_newjob_cond的阻塞状态（添加完任务就解除，这样bioProcessBackgroundJobs才能执行）
     pthread_cond_signal(&bio_newjob_cond[type]);
+    // 释放锁
     pthread_mutex_unlock(&bio_mutex[type]);
 }
 
@@ -156,7 +226,17 @@ void *bioProcessBackgroundJobs(void *arg) {
 
     /* Make the thread killable at any time, so that bioKillThreads()
      * can work reliably. */
+
+    /**
+     * @brief  以下
+     * PTHREAD_CANCEL_ENABLE PTHREAD_CANCEL_ASYNCHRONOUS 表示接收到取消信号后，立即取消（退出）
+     * PTHREAD_CANCEL_ENABLE PTHREAD_CANCEL_DEFFERED  表示接收到取消信号后继续运行，直到下一个取消点再退出
+     *
+     * 设置本线程对cancel信号的反应
+     * 
+     */
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    //设置奔现从取消动作的执行时机 PTHREAD_CANCEL_ASYNCHRONOUS 和PTHREAD_CANCEL_DEFFERED
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
     pthread_mutex_lock(&bio_mutex[type]);
@@ -168,10 +248,16 @@ void *bioProcessBackgroundJobs(void *arg) {
         serverLog(LL_WARNING,
             "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(errno));
 
+    //循环处理对应的任务
     while(1) {
         listNode *ln;
 
         /* The loop always starts with the lock hold. */
+        
+        /**
+         * @brief 如果任务列表已经空了，那么就通过pthread_cond_wait 等待bio_newjob_cond的信号，以及互斥锁的释放
+         * 
+         */
         if (listLength(bio_jobs[type]) == 0) {
             pthread_cond_wait(&bio_newjob_cond[type],&bio_mutex[type]);
             continue;
@@ -185,8 +271,10 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
+            //关闭任务
             close((long)job->arg1);
         } else if (type == BIO_AOF_FSYNC) {
+            // 刷盘
             redis_fsync((long)job->arg1);
         } else if (type == BIO_LAZY_FREE) {
             /* What we free changes depending on what arguments are set:
@@ -194,8 +282,10 @@ void *bioProcessBackgroundJobs(void *arg) {
              * arg2 & arg3 -> free two dictionaries (a Redis DB).
              * only arg3 -> free the skiplist. */
             if (job->arg1)
+                //将val和robj解绑，并释放
                 lazyfreeFreeObjectFromBioThread(job->arg1);
             else if (job->arg2 && job->arg3)
+                //回收
                 lazyfreeFreeDatabaseFromBioThread(job->arg2,job->arg3);
             else if (job->arg3)
                 lazyfreeFreeSlotsMapFromBioThread(job->arg3);
@@ -211,6 +301,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         bio_pending[type]--;
 
         /* Unblock threads blocked on bioWaitStepOfType() if any. */
+        //条件
         pthread_cond_broadcast(&bio_step_cond[type]);
     }
 }

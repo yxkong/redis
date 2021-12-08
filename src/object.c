@@ -53,13 +53,20 @@ robj *createObject(int type, void *ptr) {
     //默认raw编码
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
+    //默认引用一次
     o->refcount = 1;
 
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
+
+    /**
+     * 如果是LFU的淘汰策略
+     * 
+     */
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
+        //赋值为时间戳
         o->lru = LRU_CLOCK();
     }
     return o;
@@ -91,7 +98,17 @@ robj *createRawStringObject(const char *ptr, size_t len) {
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
+
+/**
+ * @brief Create a Embedded String Object object
+ * 好处是空间连续，可以
+ * @param ptr 字符串引用
+ * @param len 小于44位
+ * @return robj* 
+ */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
+    // 申请一个robj+sdshrd8 的连续空间
+    //16+4+len  最大64字节
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     struct sdshdr8 *sh = (void*)(o+1);
 
@@ -148,18 +165,21 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     {
         /* If the maxmemory policy permits, we can still return shared integers
          * even if valueobj is true. */
+        //没有设置过期策略就为0 
         valueobj = 0;
     }
-
+    // 没有设置过期策略，并且小于10000就会使用共享对象
     if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
+        // 在long的范围内，o.ptr 就是具体的值，这时o 为16+8 = 24字节
         if (value >= LONG_MIN && value <= LONG_MAX) {
             o = createObject(OBJ_STRING, NULL);
             o->encoding = OBJ_ENCODING_INT;
             o->ptr = (void*)((long)value);
         } else {
+            //不在long的范围，ptr就是一个字符串
             o = createObject(OBJ_STRING,sdsfromlonglong(value));
         }
     }
@@ -356,11 +376,21 @@ void freeModuleObject(robj *o) {
 void freeStreamObject(robj *o) {
     freeStream(o->ptr);
 }
-
+/**
+ * @brief 引用计数+1
+ * 
+ * @param o 
+ */
 void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
 
+/**
+ * @brief 引用次数减一
+ * 只有引用=1的时候，会释放对应类型的val值，以及val关联的robj对象
+ * >1的情况只是refcount-1
+ * @param o 
+ */
 void decrRefCount(robj *o) {
     if (o->refcount == 1) {
         switch(o->type) {
@@ -430,15 +460,30 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
  * in case there is more than 10% of free space at the end of the SDS
  * string. This happens because SDS strings tend to overallocate to avoid
  * wasting too much time in allocations when appending to the string. */
+
+/**
+ * @brief 在OBJ_ENCODING_RAW 编码的情况下
+ * 如果sds的可用空间>10%的总空间，释放空间
+ * 
+ * @param o 
+ */
 void trimStringObjectIfNeeded(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW &&
         sdsavail(o->ptr) > sdslen(o->ptr)/10)
     {
+        //释放空间
         o->ptr = sdsRemoveFreeSpace(o->ptr);
     }
 }
 
 /* Try to encode a string object in order to save space */
+
+/**
+ * @brief 尝试对字符串进行编码以节省空间
+ * 
+ * @param o 字符串
+ * @return robj* 
+ */
 robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
@@ -448,42 +493,68 @@ robj *tryObjectEncoding(robj *o) {
      * in this function. Other types use encoded memory efficient
      * representations but are handled by the commands implementing
      * the type. */
+    //只处理类型是OBJ_STRING的对象
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
 
     /* We try some specialized encoding only for objects that are
      * RAW or EMBSTR encoded, in other words objects that are still
      * in represented by an actually array of chars. */
+    //只对RAW 和EMBSTR 进行优化,不是这个编码，直接返回
     if (!sdsEncodedObject(o)) return o;
 
     /* It's not safe to encode shared objects: shared objects can be shared
      * everywhere in the "object space" of Redis and may end in places where
      * they are not handled. We handle them only as values in the keyspace. */
+    // 如果是共享对象不进行编码（不能因为自己改了影响别的）
      if (o->refcount > 1) return o;
 
     /* Check if we can represent this string as a long integer.
      * Note that we are sure that a string larger than 20 chars is not
      * representable as a 32 nor 64 bit integer. */
     len = sdslen(s);
+    // 检查是否可以转成long类型，超过20位，不能转
     if (len <= 20 && string2l(s,len,&value)) {
         /* This object is encodable as a long. Try to use a shared object.
          * Note that we avoid using shared integers when maxmemory is used
          * because every object needs to have a private LRU field for the LRU
          * algorithm to work well. */
+
+        /**
+         * @brief 如果没有使用maxmemory，则会使用共享对象shared.integers
+         * 一旦使用了maxmemory，并且设置了过期策略，那么就不会使用共享对象，
+         * 因为，需要给每个对象设置一个私有的LRU字段，这样LRU算法才能正常使用
+         * 
+         */
         if ((server.maxmemory == 0 ||
             !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) &&
             value >= 0 &&
             value < OBJ_SHARED_INTEGERS)
         {
+            /**
+             * 如果是long类型，且小于10000，就使用共享对象，
+             * 这个时候，就想新建的o对象释放
+             * 对共享对象shared.integers[value] 加1
+             */
             decrRefCount(o);
             incrRefCount(shared.integers[value]);
             return shared.integers[value];
         } else {
+            //不使用共享对象的情况下，数值类型的也会优化，直接指向一个具体值，而不是robj
             if (o->encoding == OBJ_ENCODING_RAW) {
+                /**
+                 * long long 类型是8直接
+                 * 这个时候一个obj  是16+8=24 字节
+                 */
                 sdsfree(o->ptr);
                 o->encoding = OBJ_ENCODING_INT;
                 o->ptr = (void*) value;
                 return o;
             } else if (o->encoding == OBJ_ENCODING_EMBSTR) {
+                /**
+                 *  如果使用OBJ_ENCODING_EMBSTR 编码
+                 *  释放原对象o
+                 *  创建long long 类型的robj
+                 */
                 decrRefCount(o);
                 return createStringObjectFromLongLongForValue(value);
             }
@@ -494,6 +565,7 @@ robj *tryObjectEncoding(robj *o) {
      * try the EMBSTR encoding which is more efficient.
      * In this representation the object and the SDS string are allocated
      * in the same chunk of memory to save space and cache misses. */
+    // 小于44字节用OBJ_ENCODING_EMBSTR
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT) {
         robj *emb;
 
@@ -512,6 +584,12 @@ robj *tryObjectEncoding(robj *o) {
      * We do that only for relatively large strings as this branch
      * is only entered if the length of the string is greater than
      * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
+    
+    /**
+     * @brief 如果前面没有编码成功，这里是一个兜底策略
+     * 正常第一次不会走这里
+     */
+
     trimStringObjectIfNeeded(o);
 
     /* Return the original object. */
@@ -520,6 +598,13 @@ robj *tryObjectEncoding(robj *o) {
 
 /* Get a decoded version of an encoded object (returned as a new object).
  * If the object is already raw-encoded just increment the ref count. */
+
+/**
+ * @brief 获string取解码对象
+ * 
+ * @param o 
+ * @return robj* 
+ */
 robj *getDecodedObject(robj *o) {
     robj *dec;
 

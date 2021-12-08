@@ -1108,6 +1108,14 @@ void updateCachedTime(int update_daylight_info) {
  * a macro is used: run_with_period(milliseconds) { .... }
  */
 
+/**
+ * @brief TODO
+ * 
+ * @param eventLoop 
+ * @param id 
+ * @param clientData 
+ * @return int 
+ */
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j;
     UNUSED(eventLoop);
@@ -1121,6 +1129,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache. */
     updateCachedTime(1);
 
+    //10
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
@@ -1155,6 +1164,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
+    
+    /**
+     * @brief 获取getLRUClock 然后翻入server.lruclock
+     * 
+     */
     unsigned long lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
 
@@ -1441,6 +1455,10 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 
 /* =========================== Server initialization ======================== */
 
+/**
+ * @brief 创建共享对象，这些对象都是redisObject
+ *  一些异常提示，服务交互的指令等
+ */
 void createSharedObjects(void) {
     int j;
 
@@ -1517,6 +1535,7 @@ void createSharedObjects(void) {
     shared.rpoplpush = createStringObject("RPOPLPUSH",9);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
+    //共享变量9999
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
@@ -1535,7 +1554,10 @@ void createSharedObjects(void) {
     shared.minstring = sdsnew("minstring");
     shared.maxstring = sdsnew("maxstring");
 }
-
+/**
+ * @brief 只是把变量赋值了默认值
+ * 
+ */
 void initServerConfig(void) {
     int j;
 
@@ -1933,6 +1955,15 @@ void checkTcpBacklogSettings(void) {
  * impossible to bind, or no bind addresses were specified in the server
  * configuration but the function is not able to bind * for at least
  * one of the IPv4 or IPv6 protocols. */
+
+/**
+ * @brief 将fd和端口绑定
+ * 
+ * @param port 
+ * @param fds 
+ * @param count 
+ * @return int 
+ */
 int listenToPort(int port, int *fds, int *count) {
     int j;
 
@@ -2063,8 +2094,10 @@ void initServer(void) {
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
+    //创建公共对象
     createSharedObjects();
     adjustOpenFilesLimit();
+    //创建事件监听器，重要
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -2072,9 +2105,15 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
+    //申请数据地址空间
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
+
+    /**
+     * 创建指定socket监听
+     * 
+     */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
@@ -2098,6 +2137,7 @@ void initServer(void) {
     }
 
     /* Create the Redis databases, and initialize other internal state. */
+    //实例化数据库的属性
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
@@ -2147,6 +2187,11 @@ void initServer(void) {
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
+    
+    /**
+     * @brief 将serverCron放入事件监听器里（重要）
+     * 
+     */
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
@@ -2154,7 +2199,13 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+
+    /**
+     * @brief 重点 ###########
+     * 
+     */
     for (j = 0; j < server.ipfd_count; j++) {
+        //将acceptTcpHandler 放入文件监听器里，主要用来校验
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
             {
@@ -2191,6 +2242,7 @@ void initServer(void) {
      * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
      * useless crashes of the Redis instance for out of memory. */
     if (server.arch_bits == 32 && server.maxmemory == 0) {
+        //32位系统限制
         serverLog(LL_WARNING,"Warning: 32 bit instance detected but no memory limit set. Setting 3 GB maxmemory limit with 'noeviction' policy now.");
         server.maxmemory = 3072LL*(1024*1024); /* 3 GB */
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
@@ -2199,7 +2251,9 @@ void initServer(void) {
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
     scriptingInit(1);
+    //慢日志初始化
     slowlogInit();
+    //monitor初始化
     latencyMonitorInit();
 }
 
@@ -2215,6 +2269,11 @@ void InitServerLast() {
 
 /* Populates the Redis Command Table starting from the hard coded list
  * we have on top of redis.c file. */
+
+/**
+ * @brief 将预定义的命令填充到server.commands
+ * 
+ */
 void populateCommandTable(void) {
     int j;
     int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
@@ -4218,7 +4277,13 @@ int redisIsSupervised(int mode) {
     return 0;
 }
 
-
+/**
+ * @brief redis启动入口
+ * 
+ * @param argc 
+ * @param argv 
+ * @return int 
+ */
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
@@ -4255,6 +4320,7 @@ int main(int argc, char **argv) {
 #endif
     setlocale(LC_COLLATE,"");
     tzset(); /* Populates 'timezone' global. */
+    //申请空间oom后的处理器
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
@@ -4262,8 +4328,11 @@ int main(int argc, char **argv) {
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
+    //哨兵模式
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+    //初始化服务器配置（默认值）
     initServerConfig();
+
     moduleInitModulesSystem();
 
     /* Store the executable path and arguments in a safe place in order
@@ -4277,6 +4346,7 @@ int main(int argc, char **argv) {
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
     if (server.sentinel_mode) {
+        //初始化哨兵配置
         initSentinelConfig();
         initSentinel();
     }
@@ -4351,6 +4421,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
         resetServerSaveParams();
+        //将配置文件的内容填充到server中
         loadServerConfig(configfile,options);
         sdsfree(options);
     }
@@ -4373,10 +4444,12 @@ int main(int argc, char **argv) {
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
-
+    //初始化server服务
     initServer();
     if (background || server.pidfile) createPidFile();
+    //设置redis打印的标题
     redisSetProcTitle(argv[0]);
+    //打印图标那块
     redisAsciiArt();
     checkTcpBacklogSettings();
 

@@ -43,6 +43,20 @@ typedef struct configEnum {
     const int val;
 } configEnum;
 
+/**
+ * @brief lru 淘汰策略枚举
+ * least recently used  最近最少使用的
+ * least frequently used lfu 最不经常使用的
+ * 
+ * noeviction 不使用淘汰策略，当内存满了再写入，会报错
+ * volatile-lru 对设置了过期时间的键，采取lru淘汰策略
+ * volatile-lfu 对设置了过期时间的键，采取lfu淘汰策略
+ * volatile-random 对设置了过期时间的键，采取随机删除策略
+ * volatile-ttl 对设置了过期时间的键，采取最快到期的淘汰策略
+ * allkeys-lru 对所有的键采取lru
+ * allkeys-lfu 对所有的键采取lfu
+ * allkeys-random 对所有的键采取随机
+ */
 configEnum maxmemory_policy_enum[] = {
     {"volatile-lru", MAXMEMORY_VOLATILE_LRU},
     {"volatile-lfu", MAXMEMORY_VOLATILE_LFU},

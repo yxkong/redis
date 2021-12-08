@@ -60,11 +60,18 @@
     #endif
 #endif
 
+/**
+ * @brief 创建事件监听器
+ * 
+ * @param setsize 比配置的最大链接数要多128，为了安全处理（比如有的处理完了，还没有释放，多创建的就相当于缓冲队列了）
+ * @return aeEventLoop* 
+ */
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
 
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
+    //创建对应数量的
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
@@ -133,6 +140,16 @@ void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
+/**
+ * @brief 创建网络事件监听器
+ *   注册acceptTcpHandler处理AE_READABLE和AE_WRITABLE
+ * @param eventLoop 
+ * @param fd fd的id
+ * @param mask 
+ * @param proc 
+ * @param clientData 
+ * @return int 
+ */
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
@@ -205,6 +222,16 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
+/**
+ * @brief 注册定时器
+ * 
+ * @param eventLoop 
+ * @param milliseconds 
+ * @param proc 定时器
+ * @param clientData 
+ * @param finalizerProc 
+ * @return long long 
+ */
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)

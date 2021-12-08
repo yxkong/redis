@@ -227,9 +227,17 @@
 /* Utility macros.*/
 
 /* Return total bytes a ziplist is composed of. */
+/**
+ * @brief 返回ziplist包含的总字节数
+ * 
+ */
 #define ZIPLIST_BYTES(zl)       (*((uint32_t*)(zl)))
 
 /* Return the offset of the last item inside the ziplist. */
+/**
+ * @brief 返回ziplist最后item的偏移量
+ * 
+ */
 #define ZIPLIST_TAIL_OFFSET(zl) (*((uint32_t*)((zl)+sizeof(uint32_t))))
 
 /* Return the length of a ziplist, or UINT16_MAX if the length cannot be
@@ -239,6 +247,11 @@
 /* The size of a ziplist header: two 32 bit integers for the total
  * bytes count and last item offset. One 16 bit integer for the number
  * of items field. */
+
+/**
+ * @brief ziplist的header大小，两个32位的integers总字节数和最后item的偏移量
+ * 
+ */
 #define ZIPLIST_HEADER_SIZE     (sizeof(uint32_t)*2+sizeof(uint16_t))
 
 /* Size of the "end of ziplist" entry. Just one byte. */
@@ -585,8 +598,14 @@ void zipEntry(unsigned char *p, zlentry *e) {
     e->p = p;
 }
 
-/* Create a new empty ziplist. */
+
+/**
+ * @brief 创建一个空的压缩列表
+ * 
+ * @return unsigned char* 
+ */
 unsigned char *ziplistNew(void) {
+    // <zlbytes> <zltail> <zllen> <entry> <entry> ... <entry> <zlend>
     //12+1
     unsigned int bytes = ZIPLIST_HEADER_SIZE+ZIPLIST_END_SIZE;
     //申请13字节的空间
@@ -1132,7 +1151,7 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int 
  * @param skip  步长，用于链表遍历
  * @return unsigned char* 
  */
-unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip) {
+unsigned char *ziplistFind(unsigned char * , unsigned char *vstr, unsigned int vlen, unsigned int skip) {
     int skipcnt = 0;
     unsigned char vencoding = 0;
     long long vll = 0;

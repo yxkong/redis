@@ -45,6 +45,7 @@ int keyIsExpired(redisDb *db, robj *key);
  * Then logarithmically increment the counter, and update the access time. */
 void updateLFU(robj *val) {
     unsigned long counter = LFUDecrAndReturn(val);
+    //
     counter = LFULogIncr(counter);
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
 }
@@ -74,9 +75,11 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             server.aof_child_pid == -1 &&
             !(flags & LOOKUP_NOTOUCH))
         {
+            //跟新LFU的时钟
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
             } else {
+                //更新LRU的时钟
                 val->lru = LRU_CLOCK();
             }
         }

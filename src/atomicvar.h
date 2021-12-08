@@ -59,6 +59,13 @@
 
 #include <pthread.h>
 
+/**
+ * @brief 定义原子操作
+ * 
+ * 
+ */
+
+
 #ifndef __ATOMIC_VAR_H
 #define __ATOMIC_VAR_H
 
@@ -76,6 +83,10 @@
     oldvalue_var = __atomic_fetch_add(&var,(count),__ATOMIC_RELAXED); \
 } while(0)
 #define atomicDecr(var,count) __atomic_sub_fetch(&var,(count),__ATOMIC_RELAXED)
+/**
+ * @brief 原子操作
+ * 
+ */
 #define atomicGet(var,dstvar) do { \
     dstvar = __atomic_load_n(&var,__ATOMIC_RELAXED); \
 } while(0)

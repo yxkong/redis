@@ -49,31 +49,33 @@ struct __attribute__ ((__packed__)) sdshdr5 {
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr8 {
-    //1字节  max= 255
+    //1字节  max= 255  已用空间
     uint8_t len; /* used */ 
-    //1字节
+    //1字节  申请的buf的总空间，max255（不包含flags、len、alloc这些）
     uint8_t alloc; /* excluding the header and null terminator */
     // 1字节 max= 255
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     // 字节数组
     char buf[];
-};
+};//4+n 长度
 struct __attribute__ ((__packed__)) sdshdr16 {
     // 2字节 16位 max 65535
     uint16_t len; /* used */
-    // 2字节 16位 max 65535
+    // 2字节 16位 申请的buf的总空间max 65535
     uint16_t alloc; /* excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr32 {
     uint32_t len; /* used */
+    //申请的buf的总空间
     uint32_t alloc; /* excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr64 {
     uint64_t len; /* used */
+    //申请的buf的总空间
     uint64_t alloc; /* excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
@@ -90,6 +92,12 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+/**
+ * @brief 
+ * 
+ * @param s 
+ * @return size_t 
+ */
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -107,6 +115,12 @@ static inline size_t sdslen(const sds s) {
     return 0;
 }
 
+/**
+ * @brief 返回sds有效长度
+ * c 语言的静态方法作用域只在本文件中
+ * @param s 
+ * @return size_t 
+ */
 static inline size_t sdsavail(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {

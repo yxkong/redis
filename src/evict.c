@@ -34,6 +34,25 @@
 #include "bio.h"
 #include "atomicvar.h"
 
+/**
+ * @brief 
+ * LFU算法的思路是： 我们记录下来每个（被缓存的/出现过的）数据的请求频次信息，如果一个请求的请求次数多，那么它就很可能接着被请求。
+
+在数据请求模式比较稳定（没有对于某个数据突发的高频访问这样的不稳定模式）的情况下，LFU的表现还是很不错的。在数据的请求模式大多不稳定的情况下，LFU一般会有这样一些问题：
+
+1）微博热点数据一般只是几天内有较高的访问频次，过了这段时间就没那么大意义去缓存了。但是因为在热点期间他的频次被刷上去了，之后很长一段时间内很难被淘汰；
+2）如果采用只记录缓存中的数据的访问信息，新加入的高频访问数据在刚加入的时候由于没有累积优势，很容易被淘汰掉；
+3）如果记录全部出现过的数据的访问信息，会占用更多的内存空间。
+
+对于上面这些问题，其实也都有一些对应的解决方式，相应的出现了很多LFU的变种。如：Window-LFU、LFU*、LFU-Aging。在Redis的LFU算法实现中，也有其解决方案。
+
+近似计数算法 – Morris算法
+Redis记录访问次数使用了一种近似计数算法——Morris算法。Morris算法利用随机算法来增加计数，在Morris算法中，计数不是真实的计数，它代表的是实际计数的量级。
+
+算法的思想是这样的：算法在需要增加计数的时候通过随机数的方式计算一个值来判断是否要增加，算法控制 在计数越大的时候，得到结果“是”的几率越小。
+ * 
+ */
+
 /* ----------------------------------------------------------------------------
  * Data structures
  * --------------------------------------------------------------------------*/
@@ -67,7 +86,19 @@ static struct evictionPoolEntry *EvictionPoolLRU;
 /* Return the LRU clock, based on the clock resolution. This is a time
  * in a reduced-bits format that can be used to set and check the
  * object->lru field of redisObject structures. */
+
+/**
+ * @brief 服务器会把这个值刷入到server.lruclock
+ * 
+ * @return unsigned int 
+ */
 unsigned int getLRUClock(void) {
+    /**
+     * 获取秒  mstime()/LRU_CLOCK_RESOLUTION
+     * LRU 存储的最大值 LRU_CLOCK_MAX 
+     * & 计算获取时间戳的低24位
+     * 194天才会溢出
+     */
     return (mstime()/LRU_CLOCK_RESOLUTION) & LRU_CLOCK_MAX;
 }
 
@@ -77,6 +108,9 @@ unsigned int getLRUClock(void) {
  * precomputed value, otherwise we need to resort to a system call. */
 unsigned int LRU_CLOCK(void) {
     unsigned int lruclock;
+    /**
+     * 
+     */
     if (1000/server.hz <= LRU_CLOCK_RESOLUTION) {
         atomicGet(server.lruclock,lruclock);
     } else {
@@ -293,10 +327,30 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  * it is just decremented by one.
  * --------------------------------------------------------------------------*/
 
+/**
+ * @brief LFU
+ * 1, LFU 使用lru的24位，低8位记录统计次数，高16位记录分钟级的访问时间
+ * 2，LFU 给一个初始 LFU_INIT_VAL 防止高频数据刚插入因为counter太小而被淘汰；
+ * 3，LFU 使用近似计数算法，counter越大，counter增加的几率反而越小（防止热点数据被刷上去以后淘汰不了）
+ * 
+ */
+
 /* Return the current time in minutes, just taking the least significant
  * 16 bits. The returned time is suitable to be stored as LDT (last decrement
  * time) for the LFU implementation. */
+
+
+
+/**
+ * @brief 获取当前时间（分钟级）
+ * 
+ * @return unsigned long 
+ */
 unsigned long LFUGetTimeInMinutes(void) {
+    /**
+     * server.unixtime/60  获取分钟
+     * 分钟再&65535，45天溢出
+     */
     return (server.unixtime/60) & 65535;
 }
 
@@ -304,20 +358,62 @@ unsigned long LFUGetTimeInMinutes(void) {
  * that elapsed since the last access. Handle overflow (ldt greater than
  * the current 16 bits minutes time) considering the time as wrapping
  * exactly once. */
+
+/**
+ * @brief 获取从上次访问到现在访问的分钟数
+ * 
+ * @param ldt 
+ * @return unsigned long 
+ */
 unsigned long LFUTimeElapsed(unsigned long ldt) {
+    //获取当前时间
     unsigned long now = LFUGetTimeInMinutes();
+    //未溢出的情况下
     if (now >= ldt) return now-ldt;
+    //溢出的情况下
     return 65535-ldt+now;
 }
 
 /* Logarithmically increment a counter. The greater is the current counter value
  * the less likely is that it gets really implemented. Saturate it at 255. */
+
+/**
+ * @brief 更新LRU的后8位，也就是LFU的counter
+ * LFU 使用近似计数法，counter越大
+ * 
+ * @param counter 
+ * @return uint8_t 
+ */
 uint8_t LFULogIncr(uint8_t counter) {
     if (counter == 255) return 255;
+    /**
+     * @brief rand()随机生成一个0~RAND_MAX 的随机数
+     * r的范围是0~1
+     */
     double r = (double)rand()/RAND_MAX;
+    //
     double baseval = counter - LFU_INIT_VAL;
     if (baseval < 0) baseval = 0;
+    /**
+     * server.lfu_log_factor 默认为10
+     * baseval 越大 p的值就越小
+     */
     double p = 1.0/(baseval*server.lfu_log_factor+1);
+    /**
+     * r是随机生成的0~1
+     * counter 是以5为起始点
+     * baseval=0 时： p的值为1         r的在1以下的概率为100%
+     * baseval=1 时： p的值为0.0909    r的在0.09以下的概率只有约9%  10次counter+1
+     * baseval=2 时： p的值为0.0476    r的在0.0476以下的概率只有约4.8%  20次counter+1
+     * baseval=3 时： p的值为0.0322    r的在0.0322以下的概率只有约3.2%  30次counter+1
+     * baseval=4 时： p的值为0.0244    r的在0.0244以下的概率只有约2.4%  40次counter+1
+     * baseval=5 时： p的值约0.0196    r的在0.0196 以下的概率只有约2%  50次counter+1
+     * baseval=10 时：p的值约0.0099    r的在0.0099 以下的概率只有约1%  100次才可能加1次
+     * baseval=100时：p的值约0.000999  r的在0.000999 以下的概率只有约0.1% 1000次才可能加1
+     * baseval=200时：p的值约0.0005  r的在0.0005 以下的概率只有约0.05% 2000次才可能加1
+     * 想达到100的baseval总次数为（10+20+30+40+...+1000）=49*1000+500 约 5万次
+     * 想达到200的baseval总次数为 (10+20+30+40+...+2000) = 99*2000+1000 约20万次
+     */
     if (r < p) counter++;
     return counter;
 }
@@ -332,10 +428,28 @@ uint8_t LFULogIncr(uint8_t counter) {
  * This function is used in order to scan the dataset for the best object
  * to fit: as we check for the candidate, we incrementally decrement the
  * counter of the scanned objects if needed. */
+
+/**
+ * @brief LFU计数衰减
+ * 
+ * @param o 
+ * @return unsigned long 
+ */
 unsigned long LFUDecrAndReturn(robj *o) {
+    //获取lru中的高16位的值
     unsigned long ldt = o->lru >> 8;
+    // 通过&获取lru的counter
     unsigned long counter = o->lru & 255;
+    /**
+     * 配置衰减时间的情况下
+     * num_periods = 上次访问时间/1
+     * 
+     */
     unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
+    /**
+     * 在频繁访问的情况下num_periods=0 
+     * 超过10分钟没访问就减10
+     */
     if (num_periods)
         counter = (num_periods > counter) ? 0 : counter - num_periods;
     return counter;

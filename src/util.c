@@ -357,6 +357,15 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
  * Because of its strictness, it is safe to use this function to check if
  * you can convert a string into a long long, and obtain back the string
  * from the number without any loss in the string representation. */
+
+/**
+ * @brief 字符串转long long 类型
+ * 
+ * @param s 
+ * @param slen 
+ * @param value 
+ * @return int 
+ */
 int string2ll(const char *s, size_t slen, long long *value) {
     const char *p = s;
     size_t plen = 0;
