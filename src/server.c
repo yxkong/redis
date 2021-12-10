@@ -1935,6 +1935,12 @@ void adjustOpenFilesLimit(void) {
 
 /* Check that server.tcp_backlog can be actually enforced in Linux according
  * to the value of /proc/sys/net/core/somaxconn, or warn about it. */
+
+ /**
+  * @brief 检查server.tcp_backlog
+  * tcp三次握手以后accept queue的长度，受系统参数somaxconn影响
+  * 
+  */
 void checkTcpBacklogSettings(void) {
 #ifdef HAVE_PROC_SOMAXCONN
     FILE *fp = fopen("/proc/sys/net/core/somaxconn","r");
