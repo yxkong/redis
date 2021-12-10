@@ -72,7 +72,7 @@
 /**
  * @brief 创建事件监听器
  * 
- * @param setsize 比配置的最大链接数要多128，为了安全处理（比如有的处理完了，还没有释放，多创建的就相当于缓冲队列了）
+ * @param setsize 比配置的最大链接数要多96，为了安全处理（比如有的处理完了，还没有释放，多创建的就相当于缓冲队列了）
  * @return aeEventLoop* 
  */
 aeEventLoop *aeCreateEventLoop(int setsize) {
@@ -82,7 +82,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
     //创建对应数量的aeFileEvent空间
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
-    //创建对应数量的aeFiredEvent空间
+    //创建对应数量的aeFiredEvent空间，此处承载的是触发事件（从epoll里读取后会放入这里）
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
     eventLoop->setsize = setsize;
@@ -153,12 +153,12 @@ void aeStop(aeEventLoop *eventLoop) {
 }
 
 /**
- * @brief 创建网络事件监听器并放入到eventLoop->events中
+ * @brief 创建文件事件监听器并放入到eventLoop->events中
  *   注册acceptTcpHandler处理AE_READABLE和AE_WRITABLE
  * @param eventLoop 
- * @param fd fd的id
+ * @param fd 对应tcp socket的fd值
  * @param mask 
- * @param proc 
+ * @param proc 处理器acceptTcpHandler
  * @param clientData 
  * @return int 
  */
@@ -169,11 +169,13 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         errno = ERANGE;
         return AE_ERR;
     }
+    // 将创建的aeFileEvent 赋值给了&eventLoop->events[fd]
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
     fe->mask |= mask;
+    // 将处理器给rfileProc和wfileProc（后续会拿着这个直接执行）
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
     fe->clientData = clientData;
@@ -243,7 +245,7 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
 }
 
 /**
- * @brief 注册定时器
+ * @brief 注册时间定时器
  * 
  * @param eventLoop 
  * @param milliseconds 
@@ -498,7 +500,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         
         /**
          * @brief 从epoll里拿到numevents数量的数据
-         * 有时间，就阻塞指定的时间，没有时间，知道有数据
+         * 有时间，就阻塞指定的时间，没有时间，直到有数据，这样定时任务也不用执行
          */
         numevents = aeApiPoll(eventLoop, tvp);
 
@@ -601,6 +603,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
  */
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
+     //只要没有停止，就循环执行，这个是主线程
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);

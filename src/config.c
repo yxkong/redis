@@ -865,6 +865,7 @@ void loadServerConfig(char *filename, char *options) {
                 exit(1);
             }
         }
+         //读取配置到config
         while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
             config = sdscat(config,buf);
         if (fp != stdin) fclose(fp);

@@ -2209,8 +2209,8 @@ void initServer(void) {
      * expired keys and so forth. */
     
     /**
-     * @brief 将serverCron放入定时器里（重要）
-     * 
+     * @brief 创建时间处理器，并将serverCron放入处理器里（重要）
+     * 在这里创建了aeTimeEvent并扔给了eventLoop->timeEventHead
      */
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
@@ -4441,7 +4441,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
         resetServerSaveParams();
-        //将配置文件的内容填充到server中
+        //将配置文件的内容填充到server中，覆盖初始化变量
         loadServerConfig(configfile,options);
         sdsfree(options);
     }
