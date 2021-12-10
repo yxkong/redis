@@ -170,7 +170,12 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
+/**
+ * @brief 
+ * 
+ */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
+
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* CPU max % for keys collection */
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
@@ -1040,7 +1045,9 @@ struct clusterState;
 
 struct redisServer {
     /* General */
+    //主线程id
     pid_t pid;                  /* Main process pid. */
+    //配置文件绝对路径
     char *configfile;           /* Absolute config file path, or NULL */
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
@@ -1052,17 +1059,25 @@ struct redisServer {
      * 默认值是10
      */
     int hz;                     /* serverCron() calls frequency in hertz */
+    //数据库数组，有多少个db就有多少个
     redisDb *db;
+    //redis的命令字典，initServerConfig的时候会导入进来
     dict *commands;             /* Command table */
+    //重命名的命令字典
     dict *orig_commands;        /* Command table before command renaming. */
+    //事件驱动器
     aeEventLoop *el;
+    //lru时钟
     unsigned int lruclock;      /* Clock for LRU eviction */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
+    //密码
     char *requirepass;          /* Pass for AUTH command, or NULL */
+    //pid的文件
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
+    //定时任务跑的次数
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     int sentinel_mode;          /* True if this instance is a Sentinel. */
@@ -1079,20 +1094,32 @@ struct redisServer {
                                    to be processed. */
     /* Networking */
     int port;                   /* TCP listening port */
+    /**
+     * tcp三次握手以后accept queue的长度，受系统参数somaxconn影响
+     * linux 默认值是128,建议调大
+     * /etc/sysctl.conf
+     * net.core.somaxconn = 设置的数值
+     */
     int tcp_backlog;            /* TCP listen() backlog */
+    //绑定的地址数
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
+    //redis绑定的地址数（最多16个）
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
+    //对应绑定地址的文件描述符数
     int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
+    // 已创建的tcp文件描述符数，默认值为0（如果为0，表示没有tcp监听）
     int ipfd_count;             /* Used slots in ipfd[] */
     int sofd;                   /* Unix socket file descriptor */
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
     int cfd_count;              /* Used slots in cfd[] */
+    //链接的客户端列表，默认10000 
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
+    //正在执行的命令属于哪个客户端
     client *current_client;     /* Current client executing the command. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
@@ -1103,6 +1130,7 @@ struct redisServer {
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     /* RDB / AOF loading information */
+    //持久化加载标识
     int loading;                /* We are loading data from disk if true */
     off_t loading_total_bytes;
     off_t loading_loaded_bytes;
@@ -1304,7 +1332,7 @@ struct redisServer {
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     /**
-     * @brief 最大链接数
+     * @brief 最大链接数,默认10000个
      * 
      */
     unsigned int maxclients;            /* Max number of simultaneous clients */

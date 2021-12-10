@@ -73,6 +73,11 @@ int listMatchObjects(void *a, void *b) {
 
 /* This function links the client to the global linked list of clients.
  * unlinkClient() does the opposite, among other things. */
+/**
+ * @brief 将client添加到server.clients的队尾
+ * 
+ * @param c 
+ */
 void linkClient(client *c) {
     listAddNodeTail(server.clients,c);
     /* Note that we remember the linked list node where the client is stored,
@@ -112,6 +117,7 @@ client *createClient(int fd) {
 
     selectDb(c,0);
     uint64_t client_id;
+    //原子获取client_id
     atomicGetIncr(server.next_client_id,client_id,1);
     c->id = client_id;
     c->fd = fd;
@@ -162,7 +168,9 @@ client *createClient(int fd) {
     c->client_list_node = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
+    //将新生产的client放入server.clients队尾
     if (fd != -1) linkClient(c);
+    //初始化事务
     initClientMultiState(c);
     return c;
 }

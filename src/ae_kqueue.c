@@ -100,7 +100,13 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
         kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
     }
 }
-
+/**
+ * @brief 单位时间内获取事件数量
+ * 
+ * @param eventLoop 
+ * @param tvp 在单位时间内
+ * @return int 返回待处理的事件数量
+ */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
@@ -112,10 +118,15 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
         retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
                         &timeout);
     } else {
+        /**
+         * @brief 获取已经就绪的文件描述符数量
+         * timeout指针为空，那么kevent()会永久阻塞，直到事件发生
+         */
         retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
                         NULL);
     }
 
+    //将事件填充到eventLoop->fired中
     if (retval > 0) {
         int j;
 

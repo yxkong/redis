@@ -141,6 +141,7 @@ void bioInit(void) {
         pthread_cond_init(&bio_step_cond[j],NULL);
         //创建一个list
         bio_jobs[j] = listCreate();
+        //待处理
         bio_pending[j] = 0;
     }
 

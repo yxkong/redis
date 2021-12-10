@@ -46,6 +46,15 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
+
+/**
+ * @brief ae的几种实现
+ * redis按照性能从上到下排序，由于我使用的是mac，所以重点会分析kqueue 和evport
+ * evport: 支持Solaris
+ * epoll: 支持linux
+ * kqueue： 支持FreeBSD 系统 如macos
+ * select： 都不包含就是select
+ */
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
 #else
@@ -69,20 +78,23 @@
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
-
+    //分配空间
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
-    //创建对应数量的
+    //创建对应数量的aeFileEvent空间
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
+    //创建对应数量的aeFiredEvent空间
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
     eventLoop->setsize = setsize;
     eventLoop->lastTime = time(NULL);
+    //时间事件链表头节点
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
+    //创建一个aeApiState 给eventLoop（不同的系统实现不同，aeApiState也不同）
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -141,7 +153,7 @@ void aeStop(aeEventLoop *eventLoop) {
 }
 
 /**
- * @brief 创建网络事件监听器
+ * @brief 创建网络事件监听器并放入到eventLoop->events中
  *   注册acceptTcpHandler处理AE_READABLE和AE_WRITABLE
  * @param eventLoop 
  * @param fd fd的id
@@ -208,12 +220,20 @@ static void aeGetTime(long *seconds, long *milliseconds)
     *milliseconds = tv.tv_usec/1000;
 }
 
+/**
+ * @brief 增加milliseconds毫秒后给aeTimeEvent的when_sec和when_ms 赋值
+ * @param milliseconds 
+ * @param sec 
+ * @param ms 
+ */
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
     long cur_sec, cur_ms, when_sec, when_ms;
 
+    //获取时间
     aeGetTime(&cur_sec, &cur_ms);
     when_sec = cur_sec + milliseconds/1000;
     when_ms = cur_ms + milliseconds%1000;
+    //将毫秒增加到秒上
     if (when_ms >= 1000) {
         when_sec ++;
         when_ms -= 1000;
@@ -242,6 +262,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te = zmalloc(sizeof(*te));
     if (te == NULL) return AE_ERR;
     te->id = id;
+    //计算增加时间后的时间
     aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
@@ -278,12 +299,25 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
+
+/**
+ * @brief 获取最近需要处理的定时器
+ * 
+ * @param eventLoop 
+ * @return aeTimeEvent* 
+ */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
+    //serverCron 在initServer()时已经仍到了eventLoop里
     aeTimeEvent *te = eventLoop->timeEventHead;
     aeTimeEvent *nearest = NULL;
 
     while(te) {
+        /**
+         * nearest 空
+         * 或者已到期，就取出time event
+         * 
+         */
         if (!nearest || te->when_sec < nearest->when_sec ||
                 (te->when_sec == nearest->when_sec &&
                  te->when_ms < nearest->when_ms))
@@ -294,6 +328,12 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 }
 
 /* Process time events */
+/**
+ * @brief 处理时间事件
+ * 
+ * @param eventLoop 
+ * @return int 
+ */
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
@@ -382,6 +422,15 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * the events that's possible to process without to wait are processed.
  *
  * The function returns the number of events processed. */
+
+/**
+ * @brief 处理eventLoop里等待的 定时任务，文件事件，过期事件
+ * @param eventLoop 
+ * @param flags 事件类型，
+ * 从main中过来是所有的事件，
+ * 从networking过来是文件事件
+ * @return int 
+ */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
@@ -393,6 +442,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
+
+    /**
+     * @brief 这块的意思，是
+     * 如果下一次定时还有一定的时间间隔，那么就让epoll阻塞间隔的时间获取数据
+     * 
+     */
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
@@ -402,6 +457,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
             shortest = aeSearchNearestTimer(eventLoop);
         if (shortest) {
+            //有需要处理的定时任务
+            //获取当前的秒和毫秒数
             long now_sec, now_ms;
 
             aeGetTime(&now_sec, &now_ms);
@@ -409,14 +466,16 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
             /* How many milliseconds we need to wait for the next
              * time event to fire? */
+            //计算下次触发的时间
             long long ms =
-                (shortest->when_sec - now_sec)*1000 +
-                shortest->when_ms - now_ms;
+                (shortest->when_sec - now_sec)*1000 +shortest->when_ms - now_ms;
 
             if (ms > 0) {
+                //处理差值
                 tvp->tv_sec = ms/1000;
                 tvp->tv_usec = (ms % 1000)*1000;
             } else {
+                //为0 表示已经过了执行时间
                 tvp->tv_sec = 0;
                 tvp->tv_usec = 0;
             }
@@ -424,6 +483,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             /* If we have to check for events but need to return
              * ASAP because of AE_DONT_WAIT we need to set the timeout
              * to zero */
+            //如果有AE_DONT_WAIT，不等待，直接执行
             if (flags & AE_DONT_WAIT) {
                 tv.tv_sec = tv.tv_usec = 0;
                 tvp = &tv;
@@ -435,13 +495,24 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
+        
+        /**
+         * @brief 从epoll里拿到numevents数量的数据
+         * 有时间，就阻塞指定的时间，没有时间，知道有数据
+         */
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */
+        //把eventLoop扔进去了
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
 
+        /**
+         * @brief 执行触发的事件
+         * 
+         */
         for (j = 0; j < numevents; j++) {
+            //获取一个事件处理器
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
@@ -466,6 +537,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              *
              * Fire the readable event if the call sequence is not
              * inverted. */
+            
+            //处理读事件
             if (!invert && fe->mask & mask & AE_READABLE) {
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                 fired++;
@@ -492,6 +565,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         }
     }
     /* Check time events */
+    //处理定时任务
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
 
@@ -520,6 +594,11 @@ int aeWait(int fd, int mask, long long milliseconds) {
     }
 }
 
+/**
+ * @brief 执行eventLoop
+ * 
+ * @param eventLoop 
+ */
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {

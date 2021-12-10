@@ -1009,6 +1009,7 @@ void clientsCron(void) {
 void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
+    //随机抽样处理过期key，只处理master，从库由master同步
     if (server.active_expire_enabled) {
         if (server.masterhost == NULL) {
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
@@ -1018,12 +1019,14 @@ void databasesCron(void) {
     }
 
     /* Defrag keys gradually. */
+    //碎片处理
     if (server.active_defrag_enabled)
         activeDefragCycle();
 
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
+    //调整hash表大小，并进行rehash
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
         /* We use global counters so if we stop the computation at a given
          * DB we'll be able to start from the successive in the next
@@ -1124,6 +1127,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Software watchdog: deliver the SIGALRM that will reach the signal
      * handler if we don't return here fast enough. */
+    //配置就阻塞指定的时间，单位毫秒
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
     /* Update the time cache. */
@@ -1133,7 +1137,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
+
+    //动态调整
     if (server.dynamic_hz) {
+        /**
+         * 默认10000 clients 算出来 server.hz= 80
+         * hz最大500
+         */
+
         while (listLength(server.clients) / server.hz >
                MAX_CLIENTS_PER_CLOCK_TICK)
         {
@@ -1144,7 +1155,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
     }
-
+    //周期性采集metric信息
     run_with_period(100) {
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
@@ -1573,6 +1584,7 @@ void initServerConfig(void) {
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
+    //默认赋值10
     server.hz = server.config_hz = CONFIG_DEFAULT_HZ;
     server.dynamic_hz = CONFIG_DEFAULT_DYNAMIC_HZ;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
@@ -1637,6 +1649,7 @@ void initServerConfig(void) {
     server.activerehashing = CONFIG_DEFAULT_ACTIVE_REHASHING;
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
+    //默认10000个
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
     server.blocked_clients = 0;
     memset(server.blocked_clients_by_type,0,
@@ -1959,9 +1972,9 @@ void checkTcpBacklogSettings(void) {
 /**
  * @brief 将fd和端口绑定
  * 
- * @param port 
- * @param fds 
- * @param count 
+ * @param port 端口
+ * @param fds 容量为16的数组（用于存放文件描述符）
+ * @param count 已创建的fd的量，默认为0，这里可以理解为数组的索引
  * @return int 
  */
 int listenToPort(int port, int *fds, int *count) {
@@ -1971,14 +1984,19 @@ int listenToPort(int port, int *fds, int *count) {
      * entering the loop if j == 0. */
     if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
     for (j = 0; j < server.bindaddr_count || j == 0; j++) {
+        //没有设置，就循环一次，同时绑定ipv6和ipv4
         if (server.bindaddr[j] == NULL) {
             int unsupported = 0;
             /* Bind * for both IPv6 and IPv4, we enter here only if
              * server.bindaddr_count == 0. */
+
+            //创建tcpv6的监听，然后放入fds数组里
             fds[*count] = anetTcp6Server(server.neterr,port,NULL,
                 server.tcp_backlog);
             if (fds[*count] != ANET_ERR) {
+                //设置为非阻塞
                 anetNonBlock(NULL,fds[*count]);
+                //数组索引加一
                 (*count)++;
             } else if (errno == EAFNOSUPPORT) {
                 unsupported++;
@@ -1987,6 +2005,7 @@ int listenToPort(int port, int *fds, int *count) {
 
             if (*count == 1 || unsupported) {
                 /* Bind the IPv4 address as well. */
+                // 创建tcpv4的监听，
                 fds[*count] = anetTcpServer(server.neterr,port,NULL,
                     server.tcp_backlog);
                 if (fds[*count] != ANET_ERR) {
@@ -2021,6 +2040,7 @@ int listenToPort(int port, int *fds, int *count) {
                     continue;
             return C_ERR;
         }
+        //设置sockt为非阻塞
         anetNonBlock(NULL,fds[*count]);
         (*count)++;
     }
@@ -2094,10 +2114,10 @@ void initServer(void) {
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
-    //创建公共对象
+    //创建共享对象
     createSharedObjects();
     adjustOpenFilesLimit();
-    //创建事件监听器，重要
+    //创建事件监听器，默认10000个
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -2111,8 +2131,7 @@ void initServer(void) {
     /* Open the TCP listening socket for the user commands. */
 
     /**
-     * 创建指定socket监听
-     * 
+     * socket监听
      */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
@@ -2137,7 +2156,7 @@ void initServer(void) {
     }
 
     /* Create the Redis databases, and initialize other internal state. */
-    //实例化数据库的属性
+    //初始化化数据库的属性
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
@@ -2148,6 +2167,7 @@ void initServer(void) {
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
     }
+    //初始化lru回收池
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
@@ -2189,7 +2209,7 @@ void initServer(void) {
      * expired keys and so forth. */
     
     /**
-     * @brief 将serverCron放入事件监听器里（重要）
+     * @brief 将serverCron放入定时器里（重要）
      * 
      */
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
@@ -2201,11 +2221,11 @@ void initServer(void) {
      * domain sockets. */
 
     /**
-     * @brief 重点 ###########
-     * 
+     * @brief 重点 ##########
+     * 监听多少个tcp就创建多少个
      */
     for (j = 0; j < server.ipfd_count; j++) {
-        //将acceptTcpHandler 放入文件监听器里，主要用来校验
+        //将acceptTcpHandler 放入文件监听器里，
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
             {

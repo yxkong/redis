@@ -31,6 +31,10 @@
 
 #include <sys/epoll.h>
 
+/**
+ * @brief epoll 只有1024
+ * 
+ */
 typedef struct aeApiState {
     int epfd;
     struct epoll_event *events;
@@ -104,11 +108,25 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
         epoll_ctl(state->epfd,EPOLL_CTL_DEL,fd,&ee);
     }
 }
-
+/**
+ * @brief 单位时间内获取事件数量
+ * 
+ * @param eventLoop 
+ * @param tvp 在单位时间内
+ * @return int 返回待处理的事件数量
+ */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
 
+    /**
+     * 从epoll里捞出就绪的事件
+     * setsize 告知内核最多捞出的数据 这个值是有epoll创建的一定合法
+     * 0 表示立即返回
+     * >0 表示等待多久
+     * -1 表示阻塞
+     */
+     
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + tvp->tv_usec/1000) : -1);
     if (retval > 0) {

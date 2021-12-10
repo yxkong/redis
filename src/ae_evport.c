@@ -63,6 +63,11 @@ static int evport_debug = 0;
  * and only until we enter aeApiPoll again (at which point we restore the
  * in-kernel association).
  */
+
+/**
+ * @brief 基于Solaris 10 及以上实现
+ * 最大只有512
+ */
 #define MAX_EVENT_BATCHSZ 512
 
 typedef struct aeApiState {
@@ -240,6 +245,13 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     }
 }
 
+/**
+ * @brief 单位时间内获取事件数量
+ * 
+ * @param eventLoop 
+ * @param tvp 在单位时间内
+ * @return int 返回待处理的事件数量
+ */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     struct timespec timeout, *tsp;
@@ -252,6 +264,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
      * port now, before calling port_get().  See the block comment at the top of
      * this file for an explanation of why.
      */
+    //在aeApiCreate的时候npending为0，所以第一次不执行
     for (i = 0; i < state->npending; i++) {
         if (state->pending_fds[i] == -1)
             /* This fd has since been deleted. */
@@ -281,6 +294,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
      * port_getn can return with errno == ETIME having returned some events (!).
      * So if we get ETIME, we check nevents, too.
      */
+    //在指定时间tsp内获取事件数量
     nevents = 1;
     if (port_getn(state->portfd, event, MAX_EVENT_BATCHSZ, &nevents,
         tsp) == -1 && (errno != ETIME || nevents == 0)) {
@@ -300,7 +314,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                 mask |= AE_READABLE;
             if (event[i].portev_events & POLLOUT)
                 mask |= AE_WRITABLE;
-
+            //将读写时间都抽出来放入到eventLoop->fired
             eventLoop->fired[i].fd = event[i].portev_object;
             eventLoop->fired[i].mask = mask;
 

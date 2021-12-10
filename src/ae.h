@@ -95,15 +95,20 @@ typedef struct aeFiredEvent {
 
 /* State of an event based program */
 typedef struct aeEventLoop {
+   
     int maxfd;   /* highest file descriptor currently registered */
+    //最多持有这么（最大链接+128）
     int setsize; /* max number of file descriptors tracked */
+     //记录最大的定时事件id
     long long timeEventNextId;
     time_t lastTime;     /* Used to detect system clock skew */
-    //已注册的事件
+    //已注册的文件事件通过
     aeFileEvent *events; /* Registered events */
-    //触发的的事件
+    //触发的的事件（在ae中会把所有触发的事件丢到这里）
     aeFiredEvent *fired; /* Fired events */
+    //定时事件
     aeTimeEvent *timeEventHead;
+    //事件循环结束标识
     int stop;
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
@@ -111,11 +116,29 @@ typedef struct aeEventLoop {
 } aeEventLoop;
 
 /* Prototypes */
+/**
+ * @brief 创建aeEventLoop
+ * 
+ * @param setsize ，最大链接数+128
+ * @return aeEventLoop* 
+ */
 aeEventLoop *aeCreateEventLoop(int setsize);
+/**
+ * @brief 删除aeEventLoop
+ * 
+ * @param eventLoop 
+ */
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData);
+/**
+ * @brief 删除aeEventLoop中指定的fd
+ * 
+ * @param eventLoop 
+ * @param fd 
+ * @param mask 
+ */
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd);
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
