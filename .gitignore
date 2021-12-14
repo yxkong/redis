@@ -13,6 +13,7 @@ doc-tools
 release
 misc/*
 src/release.h
+tests/test.c
 appendonly.aof
 SHORT_TERM_TODO
 release.h

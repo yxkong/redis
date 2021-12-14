@@ -20,27 +20,34 @@ typedef struct redisObject {
 
 int main()
 {
-    dictEntry *entry;
-    robj *robj;
+    // dictEntry *entry;
+    // robj *robj;
 
-    // //获取entry的指针大小
-    int length = sizeof(entry);
-    // sds copy = sdsdup("");
+    // // //获取entry的指针大小
+    // int length = sizeof(entry);
+    // // sds copy = sdsdup("");
    
-    printf("entry point size :%d \n",length);
-    // //获取entry结构体大小
-    length = sizeof(*entry);
-    printf("entry size :%d \n",length);
-    robj->ptr = "xxx234444";
-    length = sizeof(*robj);
-    printf("robj size :%d \n",length);
-    printf("robj ptr :%s \n",robj->ptr);
-    length = sizeof("abcd5");
-    printf("a size :%d \n",length);
-    long x = 1;
-    length = sizeof(x);
-    printf("x size :%d \n",length);
-    length = sizeof( (void*)x);
-     printf("x1 size :%d \n",length);
+    // printf("entry point size :%d \n",length);
+    // // //获取entry结构体大小
+    // length = sizeof(*entry);
+    // printf("entry size :%d \n",length);
+    // robj->ptr = "xxx234444";
+    // length = sizeof(*robj);
+    // printf("robj size :%d \n",length);
+    // printf("robj ptr :%s \n",robj->ptr);
+    // length = sizeof("abcd5");
+    // printf("a size :%d \n",length);
+    // long x = 1;
+    // length = sizeof(x);
+    // printf("x size :%d \n",length);
+    // length = sizeof( (void*)x);
+    //  printf("x1 size :%d \n",length);
+    static int timelimit_exit = 0; 
+    if (timelimit_exit) printf("0");
+    if (!timelimit_exit) printf("!0\n");
+    timelimit_exit=1;
+    if (timelimit_exit) printf("1\n");
+    if (!timelimit_exit) printf("!1\n");
+    
     return 0;
 }
