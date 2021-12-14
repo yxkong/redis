@@ -109,7 +109,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * 如果key少，使用较少的cpu时间片处理
  * 如果key多，会使用较多的cpu时间片
  * type为1，占用cpu时间片只有一毫秒，
- * type为0，占用cpu的时间片根据server.hz大约占用25毫秒
+ * type为0，占用cpu的时间片根据默认server.hz=10大约占用25毫秒
  *   开启server.dynamic_hz时，根据链接数算出来的刷新频率来，一万链接大概3.1毫秒，链接数越多占用时间越多
  * @param type  type有两个值，0和1
  *  ACTIVE_EXPIRE_CYCLE_SLOW 0
@@ -150,7 +150,10 @@ void activeExpireCycle(int type) {
         /* Don't start a fast cycle if the previous cycle did not exit
          * for time limit. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
-        // 如果是0，就直接返回，看注释的意思，如果是timelimit_exit=1，快循环不再进来，但是代码却将timelimit_exit=0给拦截了
+        /*
+         *如果是0，就直接返回，看注释的意思，如果是timelimit_exit=1，快循环不再进来，但是代码却将timelimit_exit=0给拦截了
+         * 这代码从3.0就有了，到6.0加了一个判断条件,后续再研究下别的版本分析下
+         */
         if (!timelimit_exit) return;
         // 如果和上次执行时间差2000微秒以内，也不执行
         if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;
