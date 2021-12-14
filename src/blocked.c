@@ -178,8 +178,10 @@ void unblockClient(client *c) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
         c->btype == BLOCKED_STREAM) {
+        // 清除阻塞list、zset、stream的操作，对应有的操作会去阻塞获取数据
         unblockClientWaitingData(c);
     } else if (c->btype == BLOCKED_WAIT) {
+        //删除server.clients_waiting_acks里的数据
         unblockClientWaitingReplicas(c);
     } else if (c->btype == BLOCKED_MODULE) {
         unblockClientFromModule(c);
@@ -570,6 +572,7 @@ void unblockClientWaitingData(client *c) {
     list *l;
 
     serverAssertWithInfo(c,NULL,dictSize(c->bpop.keys) != 0);
+    //拿到客户端中的阻塞操作链表
     di = dictGetIterator(c->bpop.keys);
     /* The client may wait for multiple keys, so unblock it for every key. */
     while((de = dictNext(di)) != NULL) {
@@ -610,10 +613,7 @@ void unblockClientWaitingData(client *c) {
 
 /**
  * @brief 添加响应
- * 1， 判断有无响应的意义，已取消不再响应，或者已经在响应缓冲区了，也不处理
- * 2，防止多线程响应重复
- * 3，加入到server的响应队列
- * 4，同时加入到 影响缓冲区hash表
+ * 被阻塞命令阻塞的客户端，当对应的key有数据进来时，会触发这个响应
  * @param db 
  * @param key 
  */
@@ -621,15 +621,18 @@ void signalKeyAsReady(redisDb *db, robj *key) {
     readyList *rl;
 
     /* No clients blocking for this key? No need to queue it. */
-    // 如果key没有在队列里，表示这个key，没什么意义了（客户端主动取消），或者被别的处理了（这个不可能）
+    // 如果这个key，在阻塞客户端列表中不存在时，直接返回
     if (dictFind(db->blocking_keys,key) == NULL) return;
 
     /* Key was already signaled? No need to queue it again. */
-    //已经存在输出缓冲区，也不再处理（响应相当于是write socket io，这块是多线程处理，如果处理了一次不再处理）
+    // 已经在ready_keys 列表了，说明已经有别的信号触发了，不用再次执行了
     if (dictFind(db->ready_keys,key) != NULL) return;
 
     /* Ok, we need to queue this key into server.ready_keys. */
-    //申请一个响应对象空间，并将key和结果赋值进去
+    /**
+     * @brief 以下操作是为了将对应的接收到消息的阻塞的key放入到server.ready_keys列表中
+     * 
+     */
     rl = zmalloc(sizeof(*rl));
     rl->key = key;
     rl->db = db;
@@ -642,7 +645,7 @@ void signalKeyAsReady(redisDb *db, robj *key) {
      * to avoid adding it multiple times into a list with a simple O(1)
      * check. */
     incrRefCount(key);
-    // 添加到 响应缓冲区hash表中，方便以O(1)获取
+    // 同时会放入对应的db.ready_keys 列表里，可以O(1)获取
     serverAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
 }
 

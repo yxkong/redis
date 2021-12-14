@@ -80,7 +80,13 @@ int anetSetBlock(char *err, int fd, int non_block) {
     }
     return ANET_OK;
 }
-
+/**
+ * @brief anet设置非阻塞的方法
+ * 
+ * @param err 
+ * @param fd 
+ * @return int 
+ */
 int anetNonBlock(char *err, int fd) {
     return anetSetBlock(err,fd,1);
 }
@@ -92,6 +98,15 @@ int anetBlock(char *err, int fd) {
 /* Set TCP keep alive option to detect dead peers. The interval option
  * is only used for Linux as we are using Linux-specific APIs to set
  * the probe send time, interval, and count. */
+
+/**
+ * @brief 设置tcp保持活跃，只使用
+ * 
+ * @param err 
+ * @param fd 
+ * @param interval 
+ * @return int 
+ */
 int anetKeepAlive(char *err, int fd, int interval)
 {
     int val = 1;
@@ -147,9 +162,10 @@ static int anetSetTcpNoDelay(char *err, int fd, int val)
     }
     return ANET_OK;
 }
-
+//设置tcp无延迟
 int anetEnableTcpNoDelay(char *err, int fd)
 {
+    //设置tcp无延迟
     return anetSetTcpNoDelay(err, fd, 1);
 }
 
@@ -527,7 +543,15 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
         chmod(sa.sun_path, perm);
     return s;
 }
-
+/**
+ * @brief 针对accept的通用封装
+ * TODO  后续研究下
+ * @param err 
+ * @param s tcp socket的fd
+ * @param sa 
+ * @param len 
+ * @return int 
+ */
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
@@ -544,7 +568,16 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     }
     return fd;
 }
-
+/**
+ * @brief tcp接收，在socket上新增链接，对于linux来说就是文件描述符fd
+ * 
+ * @param err 
+ * @param s 
+ * @param ip 
+ * @param ip_len 
+ * @param port 
+ * @return int 
+ */
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;

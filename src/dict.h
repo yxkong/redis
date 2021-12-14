@@ -66,10 +66,14 @@ typedef struct dictType {
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
+//hash表结构
 typedef struct dictht {
+    //dictEntry 数组
     dictEntry **table;
+    //总大小
     unsigned long size;
     unsigned long sizemask;
+    //以用大小（内有多少个数）
     unsigned long used;
 } dictht;
 
@@ -77,6 +81,7 @@ typedef struct dict {
     dictType *type;
     void *privdata;
     dictht ht[2];
+    //rehashidx ==-1 不会进行rehash
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
     unsigned long iterators; /* number of iterators currently running */
 } dict;
@@ -143,8 +148,11 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)
+//总大小
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
+//已使用的大小
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
+//判断是否需要rehash，true需要，false不需要
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 
 /* API */

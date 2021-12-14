@@ -177,7 +177,9 @@ typedef long long ustime_t; /* microsecond time type. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
 
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* CPU max % for keys collection */
+//定期触发慢循环
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
+//定期触发快循环
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
 
 /* Instantaneous metrics tracking. */
@@ -281,6 +283,15 @@ typedef long long ustime_t; /* microsecond time type. */
 
 /* Client classes for client limits, currently used only for
  * the max-client-output-buffer limit implementation. */
+
+/**
+ * @brief client的类型
+ * CLIENT_TYPE_NORMAL 0  正常的请求回复客户端+MONITORs
+ * CLIENT_TYPE_SLAVE  1 slaves，应该在主从同步过程中使用
+ * CLIENT_TYPE_PUBSUB 2  订阅发布client
+ * CLIENT_TYPE_MASTER 3 master客户端，应该在主从同步过程中使用
+ * CLIENT_TYPE_OBUF_COUNT 
+ */
 #define CLIENT_TYPE_NORMAL 0 /* Normal req-reply clients + MONITORs */
 #define CLIENT_TYPE_SLAVE 1  /* Slaves. */
 #define CLIENT_TYPE_PUBSUB 2 /* Clients subscribed to PubSub channels. */
@@ -456,6 +467,12 @@ typedef long long ustime_t; /* microsecond time type. */
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
+
+/**
+ * @brief 条件判断宏定义
+ * _ms_ 传入的时间周期
+ *  当hz=10的时候： _ms_<100 或 定时任务总数取余_ms_再除以10000 返回true，如果返回true就执行对应的逻辑
+ */
 #define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
@@ -747,13 +764,13 @@ typedef struct clientReplyBlock {
 typedef struct redisDb {
     //当前database的全局hash表
     dict *dict;                 /* The keyspace for this DB */
-    // 过期key的集合
+    // 设置过期时间key的集合
     dict *expires;              /* Timeout of keys with a timeout set */
-    // 客户端输入缓冲区
+    // 阻塞操作的客户端列表：如：BRPOP,  BLPOP, BRPOPLPUSH，redisClient.bpop 里记录了等待哪些key，超时时间
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
-    // 用户记录放入响应队列的key，通过O(1)的方式能定位到，防止重复响应
+    // 这个列表存储的是当对应的阻塞客户端有数据时，并且触发信号后，对应的key会保存在这个列表里
     dict *ready_keys;           /* Blocked keys that received a PUSH */
-    // 事务
+    // 持有事务的列表
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     // 数据库的id，默认为0 
     int id;                     /* Database ID */
@@ -786,6 +803,7 @@ typedef struct blockingState {
                              * is > timeout then the operation timed out. */
 
     /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM */
+    // 阻塞list、zset、stream的操作
     dict *keys;             /* The keys we are waiting to terminate a blocking
                              * operation such as BLPOP or XREAD. Or NULL. */
     robj *target;           /* The key that should receive the element,
@@ -819,8 +837,15 @@ typedef struct blockingState {
  * also called ready_keys in every structure representing a Redis database,
  * where we make sure to remember if a given key was already added in the
  * server.ready_keys list. */
+
+/**
+ * @brief redisServer中的 *ready_keys的数据结构
+ * 
+ */
 typedef struct readyList {
+    //对应的db
     redisDb *db;
+    //对应的key
     robj *key;
 } readyList;
 
@@ -831,26 +856,45 @@ typedef struct client {
     int fd;                 /* Client socket. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
+    /**客户端累计的查询缓冲区大小*/
     sds querybuf;           /* Buffer we use to accumulate client queries. */
     size_t qb_pos;          /* The position we have read in querybuf. */
+    //待同步到从库的缓冲区到小
     sds pending_querybuf;   /* If this client is flagged as master, this buffer
                                represents the yet not applied portion of the
                                replication stream that we are receiving from
                                the master. */
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
+    //参数数量
     int argc;               /* Num of arguments of current command. */
+    //参数的redisObject 数组
     robj **argv;            /* Arguments of current command. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
+    /**
+     * @brief 链表对象是里面的节点对象是clientReplyBlock
+     * clientReplyBlock是一个数组
+     * 因为不知道缓冲区有多大，为了 
+     */
     list *reply;            /* List of reply objects to send to the client. */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
+    /**
+     * @brief 上次交互的时间，用于判断超时
+     */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
+    /**
+     * @brief client的类型
+     * CLIENT_TYPE_NORMAL  0 正常的请求回复客户端+MONITORs
+     * CLIENT_TYPE_SLAVE  1 slaves，应该在主从同步过程中使用
+     * CLIENT_TYPE_PUBSUB 2 订阅发布client
+     * CLIENT_TYPE_MASTER 3 master客户端，应该在主从同步过程中使用
+     */
     int flags;              /* Client flags: CLIENT_* macros. */
     int authenticated;      /* When requirepass is non-NULL. */
     int replstate;          /* Replication state if this is a slave. */
@@ -1183,6 +1227,9 @@ struct redisServer {
     } inst_metric[STATS_METRIC_COUNT];
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
+    /**
+     * @brief client的超时时间
+     */
     int maxidletime;                /* Client timeout in seconds */
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
@@ -1273,6 +1320,7 @@ struct redisServer {
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
+    //master当前的offset
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
@@ -1295,9 +1343,11 @@ struct redisServer {
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
     char *masterauth;               /* AUTH with this password with master */
+    //从节点有masterhost，主节点没有
     char *masterhost;               /* Hostname of master */
     int masterport;                 /* Port of master */
     int repl_timeout;               /* Timeout after N seconds of master idle */
+    //从节点的主节点
     client *master;     /* Client that is master for this slave */
     client *cached_master; /* Cached master to be reused for PSYNC. */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
@@ -1360,6 +1410,7 @@ struct redisServer {
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
     list *unblocked_clients; /* list of clients to unblock before next loop */
+    //记录了哪些阻塞命令的key有数据了 数据结构是readyList
     list *ready_keys;        /* List of readyList structures for BLPOP & co */
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */

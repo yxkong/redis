@@ -33,6 +33,11 @@
 #include <string.h>
 
 typedef struct aeApiState {
+    /**
+     * @brief 
+     * rfds 读集合
+     * wfds 写集合
+     */
     fd_set rfds, wfds;
     /* We need to have a copy of the fd sets as it's not safe to reuse
      * FD sets after select(). */

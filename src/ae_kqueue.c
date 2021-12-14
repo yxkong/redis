@@ -37,7 +37,14 @@ typedef struct aeApiState {
     int kqfd;
     struct kevent *events;
 } aeApiState;
-
+/**
+ * @brief  
+ * 根据不同的操作系统会有不同的实现
+ * 对于select来说应该是就是初始化fdset，用于select的相关调用；
+ * 对于epoll来说，需要创建epoll的fd以及epoll使用的events数组
+ * @param eventLoop 
+ * @return int 
+ */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
@@ -72,15 +79,28 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(state);
 }
 
+/**
+ * @brief 注册事件到 到操作系统，每个操作系统针对读写的事件类型不同
+ *  对于evport来说，往npending里增加fd  
+ *  对于kqueue来说，就是往kqfd里增加fd
+ *  对于select来说，就是往对应读写类型的fd_set里面增加fd
+ *  对于epoll来说，就是在events中增加/修改感兴趣的事件
+ * @param eventLoop 是为了接收回调数据
+ * @param fd 对应监听的fd值
+ * @param mask 类型
+ * @return int 
+ */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
     struct kevent ke;
 
     if (mask & AE_READABLE) {
+        //设置fd监听的事件类型是EVFILT_READ，
         EV_SET(&ke, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
         if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
     }
     if (mask & AE_WRITABLE) {
+        //设置fd监听的时间类型是EVFILT_WRITE
         EV_SET(&ke, fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
         if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
     }
@@ -102,15 +122,18 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
 }
 /**
  * @brief 单位时间内获取事件数量
- * 
  * @param eventLoop 
- * @param tvp 在单位时间内
+ * @param tvp 单位时间
  * @return int 返回待处理的事件数量
  */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
-
+    /**
+     * @brief 获取已经就绪的事件数据，是和fd绑定的，fd已经绑定了对应的处理器
+     * timeout指针为空，那么kevent()会永久阻塞，直到事件发生
+     * timeout有值，那么最多阻塞这么长时间
+     */
     if (tvp != NULL) {
         struct timespec timeout;
         timeout.tv_sec = tvp->tv_sec;
@@ -118,14 +141,10 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
         retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
                         &timeout);
     } else {
-        /**
-         * @brief 获取已经就绪的文件描述符数量
-         * timeout指针为空，那么kevent()会永久阻塞，直到事件发生
-         */
+       
         retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
                         NULL);
     }
-
     //将事件填充到eventLoop->fired中
     if (retval > 0) {
         int j;
@@ -137,6 +156,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
             if (e->filter == EVFILT_READ) mask |= AE_READABLE;
             if (e->filter == EVFILT_WRITE) mask |= AE_WRITABLE;
+            // 这里的ident是创建事件的时候赋值的
             eventLoop->fired[j].fd = e->ident;
             eventLoop->fired[j].mask = mask;
         }

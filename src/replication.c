@@ -2527,6 +2527,7 @@ void processClientsWaitingReplicas(void) {
     listNode *ln;
 
     listRewind(server.clients_waiting_acks,&li);
+    //处理掉队列中的等待ack
     while((ln = listNext(&li))) {
         client *c = ln->value;
 

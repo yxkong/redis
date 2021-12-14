@@ -128,7 +128,11 @@ static int aeApiLookupPending(aeApiState *state, int fd) {
 static int aeApiAssociate(const char *where, int portfd, int fd, int mask) {
     int events = 0;
     int rv, err;
-
+    /**
+     * @brief evport 里读写事件的类型
+     * 读 POLLIN
+     * 写 POLLOUT
+     */
     if (mask & AE_READABLE)
         events |= POLLIN;
     if (mask & AE_WRITABLE)

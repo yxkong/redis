@@ -821,9 +821,23 @@ long long getInstantaneousMetric(int metric) {
  * The function gets the current time in milliseconds as argument since
  * it gets called multiple times in a loop, so calling gettimeofday() for
  * each iteration would be costly without any actual gain. */
+
+/**
+ * @brief 针对请求响应客户端，只处理超时
+ * 针对阻塞客户端也有超时的概念
+ * @param c 
+ * @param now_ms 
+ * @return int 
+ */
 int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     time_t now = now_ms/1000;
 
+    /**
+     * @brief 配置了超时时间
+     * 屏蔽掉没有超时概念的客户端
+     * 如果（当前时间-上次交互时间）>超时时间
+     *  就释放客户端
+     */
     if (server.maxidletime &&
         !(c->flags & CLIENT_SLAVE) &&    /* no timeout for slaves and monitors */
         !(c->flags & CLIENT_MASTER) &&   /* no timeout for masters */
@@ -857,6 +871,12 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
  * free space not used, this function reclaims space if needed.
  *
  * The function always returns 0 as it never terminates the client. */
+
+/**
+ * @brief 回收查询缓冲区的空间
+ * @param c 
+ * @return int 
+ */
 int clientsCronResizeQueryBuffer(client *c) {
     size_t querybuf_size = sdsAllocSize(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
@@ -870,6 +890,7 @@ int clientsCronResizeQueryBuffer(client *c) {
     {
         /* Only resize the query buffer if it is actually wasting
          * at least a few kbytes. */
+        //如果浪费大于4kb的时候，才释放查询缓冲区的大小
         if (sdsavail(c->querybuf) > 1024*4) {
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
         }
@@ -968,18 +989,30 @@ void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
  * of clients per second, turning this function into a source of latency.
  */
 #define CLIENTS_CRON_MIN_ITERATIONS 5
+/**
+ * @brief 处理server.clients 里的任务
+ * 这里尾结点反转到头结点，因为clients采用的尾插法，如果最后一个过期了，那之前的请求响应客户端都过期了
+ * 1，处理超期任务
+ * 2，回收查询缓冲区
+ * 3，先不管，TODO
+ */
 void clientsCron(void) {
     /* Try to process at least numclients/server.hz of clients
      * per call. Since normally (if there are no big latency events) this
      * function is called server.hz times per second, in the average case we
      * process all the clients in 1 second. */
     int numclients = listLength(server.clients);
+    //计算循环迭代次数，以此作为最大的次数
     int iterations = numclients/server.hz;
     mstime_t now = mstime();
 
     /* Process at least a few clients while we are at it, even if we need
      * to process less than CLIENTS_CRON_MIN_ITERATIONS to meet our contract
      * of processing each client once per second. */
+    
+    /**
+     * @brief 当iterations 小于5的时候iterations = numclients，否则=5
+     */
     if (iterations < CLIENTS_CRON_MIN_ITERATIONS)
         iterations = (numclients < CLIENTS_CRON_MIN_ITERATIONS) ?
                      numclients : CLIENTS_CRON_MIN_ITERATIONS;
@@ -991,13 +1024,18 @@ void clientsCron(void) {
         /* Rotate the list, take the current head, process.
          * This way if the client must be removed from the list it's the
          * first element and we don't incur into O(N) computation. */
+        //将尾结点反转到头结点
         listRotateTailToHead(server.clients);
+        //拿到的是尾节点
         head = listFirst(server.clients);
+        //当前节点的值，是client
         c = listNodeValue(head);
         /* The following functions do different service checks on the client.
          * The protocol is that they return non-zero if the client was
          * terminated. */
+        //处理超时客户端，返回1，就继续下个循环
         if (clientsCronHandleTimeout(c,now)) continue;
+        //回收查询缓冲区的空间
         if (clientsCronResizeQueryBuffer(c)) continue;
         if (clientsCronTrackExpansiveClients(c)) continue;
     }
@@ -1006,12 +1044,19 @@ void clientsCron(void) {
 /* This function handles 'background' operations we are required to do
  * incrementally in Redis databases, such as active key expiring, resizing,
  * rehashing. */
+
+/**
+ * 1，处理过期key，发送过期事件并删除
+ * 2，内存碎片整理
+ * 3，rehash
+ */
 void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
     //随机抽样处理过期key，只处理master，从库由master同步
     if (server.active_expire_enabled) {
         if (server.masterhost == NULL) {
+            //慢循环
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
         } else {
             expireSlaveKeys();
@@ -1112,10 +1157,9 @@ void updateCachedTime(int update_daylight_info) {
  */
 
 /**
- * @brief TODO
- * 
- * @param eventLoop 
- * @param id 
+ * @brief 时间事件执行
+ * @param eventLoop fd
+ * @param id  fd
  * @param clientData 
  * @return int 
  */
@@ -1133,7 +1177,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache. */
     updateCachedTime(1);
 
-    //10
+    //10，周期性执行，所以改了下次能生效
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
@@ -1141,7 +1185,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     //动态调整
     if (server.dynamic_hz) {
         /**
-         * 默认10000 clients 算出来 server.hz= 80
+         * 默认10000 clients 算出来 server.hz= 80，hz用来计算缓存失效占用的时间
          * hz最大500
          */
 
@@ -1155,7 +1199,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
     }
-    //周期性采集metric信息
+    /**
+     * @brief  周期性采集metric信息
+     * 判断如果返回true，就执行
+     */
     run_with_period(100) {
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
@@ -1250,9 +1297,21 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* We need to do a few operations on clients asynchronously. */
+    /**
+     * @brief 处理server.clients 里的任务
+     * 这里尾结点反转到头结点，因为clients采用的尾插法，如果最后一个过期了，那之前的请求响应客户端都过期了
+     * 1，处理超期任务
+     * 2，回收查询缓冲区
+     * 3，先不管，TODO
+     */
     clientsCron();
 
     /* Handle background operations on Redis databases. */
+    /**
+     * 1，处理过期key，发送过期事件并删除
+     * 2，内存碎片整理
+     * 3，rehash
+     */
     databasesCron();
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
@@ -1318,6 +1377,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                     sp->changes, (int)sp->seconds);
                 rdbSaveInfo rsi, *rsiptr;
                 rsiptr = rdbPopulateSaveInfo(&rsi);
+                //后台rdb
                 rdbSaveBackground(server.rdb_filename,rsiptr);
                 break;
             }
@@ -1355,6 +1415,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Close clients that need to be closed asynchronous */
+    //释放需要异步释放的客户端链表
     freeClientsInAsyncFreeQueue();
 
     /* Clear the paused clients flag if needed. */
@@ -1402,6 +1463,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors. */
+
+/**
+ * @brief 循环处理前执行
+ * 
+ * @param eventLoop 
+ */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
@@ -1413,11 +1480,19 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
+
+    //激活快循环
     if (server.active_expire_enabled && server.masterhost == NULL)
+        //执行快循环
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     /* Send all the slaves an ACK request if at least one client blocked
      * during the previous event loop iteration. */
+
+    /**
+     * @brief 在等待响应ack响应的时候，会把get_ack_from_slaves设置为1
+     * 如果设置为了1，每次循环前就再发一次请求
+     */
     if (server.get_ack_from_slaves) {
         robj *argv[3];
 
@@ -1428,26 +1503,32 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         decrRefCount(argv[0]);
         decrRefCount(argv[1]);
         decrRefCount(argv[2]);
+        //发完请求再设置成0
         server.get_ack_from_slaves = 0;
     }
 
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT. */
+    //处理所有阻塞的ack
     if (listLength(server.clients_waiting_acks))
         processClientsWaitingReplicas();
 
     /* Check if there are clients unblocked by modules that implement
      * blocking commands. */
+    //处理阻塞的客户端
     moduleHandleBlockedClients();
 
     /* Try to process pending commands for clients that were just unblocked. */
     if (listLength(server.unblocked_clients))
+        //处理客户端中未阻塞的等待命令
         processUnblockedClients();
 
     /* Write the AOF buffer on disk */
+    //将aof缓冲区写入磁盘
     flushAppendOnlyFile(0);
 
     /* Handle writes with pending output buffers. */
+    //处理等待的回写队列
     handleClientsWithPendingWrites();
 
     /* Before we are going to sleep, let the threads access the dataset by
@@ -2123,7 +2204,7 @@ void initServer(void) {
     //创建共享对象
     createSharedObjects();
     adjustOpenFilesLimit();
-    //创建事件监听器，默认10000个
+    //创建事件监听器，默认10000(server.maxclients)+128
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -2137,7 +2218,7 @@ void initServer(void) {
     /* Open the TCP listening socket for the user commands. */
 
     /**
-     * socket监听
+     * tcp socket监听
      */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
@@ -2533,7 +2614,13 @@ void preventCommandReplication(client *c) {
  * preventCommandReplication(client *c);
  *
  */
+//命令执行
 void call(client *c, int flags) {
+    /**
+     * dirty 记录修改次数
+     * start记录命令开始执行时间us
+     * duration记录命令执行花费时间
+     */
     long long dirty;
     ustime_t start, duration;
     int client_old_flags = c->flags;
@@ -2560,6 +2647,7 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     updateCachedTime(0);
     start = server.ustime;
+    //命令执行，会执行对应的redisCommand
     c->cmd->proc(c);
     duration = ustime()-start;
     dirty = server.dirty-dirty;
@@ -2583,9 +2671,12 @@ void call(client *c, int flags) {
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_SLOWLOG && c->cmd->proc != execCommand) {
+        //记录慢日志
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
+        //是否采样
         latencyAddSampleIfNeeded(latency_event,duration/1000);
+        //是否加入到慢日志entry
         slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
@@ -2674,6 +2765,7 @@ int processCommand(client *c) {
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
+    //quit直接退出
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
         addReply(c,shared.ok);
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
@@ -2682,8 +2774,10 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
+     //从server.commands字典里查询命令执行命令的映射,c->argv[0]为命令名称
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
+        //未知命令处理
         flagTransaction(c);
         sds args = sdsempty();
         int i;
@@ -2695,6 +2789,7 @@ int processCommand(client *c) {
         return C_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity)) {
+        //参数个数错误处理
         flagTransaction(c);
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
             c->cmd->name);
@@ -2713,6 +2808,7 @@ int processCommand(client *c) {
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
+    //集群处理
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
@@ -2742,6 +2838,7 @@ int processCommand(client *c) {
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
     if (server.maxmemory && !server.lua_timedout) {
+        //如果有必要的话回收内存
         int out_of_memory = freeMemoryIfNeededAndSafe() == C_ERR;
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */
@@ -2839,6 +2936,11 @@ int processCommand(client *c) {
     }
 
     /* Lua script too slow? Only allow a limited number of commands. */
+    
+    /**
+     * @brief 因为执行lua超时，只能执行有限的几个命令
+     * 
+     */
     if (server.lua_timedout &&
           c->cmd->proc != authCommand &&
           c->cmd->proc != replconfCommand &&
@@ -2855,6 +2957,11 @@ int processCommand(client *c) {
     }
 
     /* Exec the command */
+    /**
+     * @brief 执行命令
+     * 开始了事务（CLIENT_MULTI）直接放入Multi队列
+     * 
+     */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
@@ -2862,7 +2969,9 @@ int processCommand(client *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
+        //执行命令回调
         call(c,CMD_CALL_FULL);
+        //
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
@@ -4525,7 +4634,7 @@ int main(int argc, char **argv) {
     if (server.maxmemory > 0 && server.maxmemory < 1024*1024) {
         serverLog(LL_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);
     }
-
+    //设置aeProcessEvents循环执行前的函数beforeSleep
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
     aeMain(server.el);

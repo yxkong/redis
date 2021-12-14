@@ -1340,6 +1340,11 @@ void xaddCommand(client *c) {
 
     /* We need to signal to blocked clients that there is new data on this
      * stream. */
+
+    /**
+     * @brief 如果有客户端阻塞的从stream里获取数据，则需要发一个signalKeyAsReady解除客户端的阻塞
+     * 
+     */
     if (server.blocked_clients_by_type[BLOCKED_STREAM])
         signalKeyAsReady(c->db, c->argv[1]);
 }

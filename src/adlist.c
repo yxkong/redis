@@ -335,6 +335,11 @@ listNode *listIndex(list *list, long index) {
 }
 
 /* Rotate the list removing the tail node and inserting it to the head. */
+/**
+ * @brief 旋转链表，移除tail节点，并插入到头节点
+ * 
+ * @param list 
+ */
 void listRotateTailToHead(list *list) {
     if (listLength(list) <= 1) return;
 

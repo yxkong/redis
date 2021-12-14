@@ -435,14 +435,24 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+
+/**
+ * @brief sds 拼接，
+ * 1，
+ * @param s 
+ * @param t 
+ * @param len 
+ * @return sds 
+ */
 sds sdscatlen(sds s, const void *t, size_t len) {
     //获取原sds的长度
     size_t curlen = sdslen(s);
-    //
+    //空间预分配
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
     memcpy(s+curlen, t, len);
     sdssetlen(s, curlen+len);
+    //拼接\0表示字符串的结尾
     s[curlen+len] = '\0';
     return s;
 }

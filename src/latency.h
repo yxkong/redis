@@ -81,6 +81,10 @@ int THPIsEnabled(void);
 }
 
 /* Add the sample only if the elapsed time is >= to the configured threshold. */
+/**
+ * @brief 达到条件延迟添加样本数据
+ * 
+ */
 #define latencyAddSampleIfNeeded(event,var) \
     if (server.latency_monitor_threshold && \
         (var) >= server.latency_monitor_threshold) \

@@ -43,6 +43,12 @@ int keyIsExpired(redisDb *db, robj *key);
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
  * Then logarithmically increment the counter, and update the access time. */
+
+/**
+ * @brief 更新LFU高16位的时钟和后8位记录的数
+ * 
+ * @param val 
+ */
 void updateLFU(robj *val) {
     unsigned long counter = LFUDecrAndReturn(val);
     //
@@ -110,6 +116,17 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * for read operations. Even if the key expiry is master-driven, we can
  * correctly report a key is expired on slaves even if the master is lagging
  * expiring our key via DELs in the replication link. */
+
+/**
+ * @brief 
+ * 
+ * @param db 
+ * @param key 
+ * @param flags 是否更改key的最后访问时间
+ *  0或者LOOKUP_NONE  
+ *  LOOKUP_NOTOUCH 不更改key的最后访问时间
+ * @return robj* 
+ */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
     // expireIfNeeded 返回1，表示不存在（过期或删除）
@@ -117,7 +134,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
         /* Key expired. If we are in the context of a master, expireIfNeeded()
          * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
-        //从节点的情况下会miss自增
+        //主节点的情况下会miss自增
         if (server.masterhost == NULL) {
             server.stat_keyspace_misses++;
             return NULL;
@@ -135,6 +152,8 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          * will say the key as non existing.
          *
          * Notably this covers GETs when slaves are used to scale reads. */
+
+        //从节点，只读命令，miss自增，直接返回null
         if (server.current_client &&
             server.current_client != server.master &&
             server.current_client->cmd &&
@@ -200,12 +219,14 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 void dbAdd(redisDb *db, robj *key, robj *val) {
     //生成一个固定长度的sds字符串作为key（因为key没有动态扩容，所以不需要多申请空间）
     sds copy = sdsdup(key->ptr);
+    //添加key,val 到全局hash表
     int retval = dictAdd(db->dict, copy, val);
 
     // 输出信息
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST ||
         val->type == OBJ_ZSET)
+        //list和zset添加数据后会触发signalKeyAsReady（这里应该再加个stream，ps:stream已经单独处理了）
         signalKeyAsReady(db, key);
     if (server.cluster_enabled) slotToKeyAdd(key);
 }
@@ -1020,9 +1041,11 @@ void moveCommand(client *c) {
 void scanDatabaseForReadyLists(redisDb *db) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
+    //迭代阻塞的客户端
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
+        //如果对应的客户端的value有数据了，就触发signalKeyAsReady
         if (value && (value->type == OBJ_LIST ||
                       value->type == OBJ_STREAM ||
                       value->type == OBJ_ZSET))
@@ -1248,7 +1271,7 @@ int keyIsExpired(redisDb *db, robj *key) {
  * @return int 返回0 表示存在，1表示不存在（过期或删除了）
  */
 int expireIfNeeded(redisDb *db, robj *key) {
-    //key是否过期，0表示未过期，0假1真
+    //key是否设置过期时间，0表示未过期，0假1真
     if (!keyIsExpired(db,key)) return 0;
 
     /* If we are running in the context of a slave, instead of
@@ -1259,7 +1282,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
-    //从节点，返回1，在外面有逻辑处理从节点
+    //masterhost有值，表示从节点，无值表示主节点，从节点，返回1，在外面有逻辑处理从节点
     if (server.masterhost != NULL) return 1;
 
     /* Delete the key */

@@ -185,6 +185,14 @@ int dictExpand(dict *d, unsigned long size)
  * guaranteed that this function will rehash even a single bucket, since it
  * will visit at max N*10 empty buckets in total, otherwise the amount of
  * work it does would be unbound and the function may block for a long time. */
+
+/**
+ * @brief 进行rehash
+ * 
+ * @param d 
+ * @param n 
+ * @return int 
+ */
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
@@ -257,6 +265,7 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * This function is called by common lookup or update operations in the
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
+//rehash
 static void _dictRehashStep(dict *d) {
     if (d->iterators == 0) dictRehash(d,1);
 }
@@ -478,10 +487,14 @@ dictEntry *dictFind(dict *d, const void *key)
     dictEntry *he;
     uint64_t h, idx, table;
 
+    //hash表为空直接返回
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
+    //
     if (dictIsRehashing(d)) _dictRehashStep(d);
+    //获取对应的key的hash值
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
+        //计算key所在的表索引
         idx = h & d->ht[table].sizemask;
         he = d->ht[table].table[idx];
         while(he) {
@@ -607,6 +620,13 @@ void dictReleaseIterator(dictIterator *iter)
 
 /* Return a random entry from the hash table. Useful to
  * implement randomized algorithms */
+
+/**
+ * @brief 从hash表中随机获取key，主要用于抽样
+ * 
+ * @param d 
+ * @return dictEntry* 
+ */
 dictEntry *dictGetRandomKey(dict *d)
 {
     dictEntry *he, *orighe;

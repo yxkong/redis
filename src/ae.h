@@ -80,6 +80,7 @@ typedef struct aeTimeEvent {
     long long id; /* time event identifier. */
     long when_sec; /* seconds */
     long when_ms; /* milliseconds */
+    //会把执行任扔这里
     aeTimeProc *timeProc;
     aeEventFinalizerProc *finalizerProc;
     void *clientData;
@@ -88,38 +89,50 @@ typedef struct aeTimeEvent {
 } aeTimeEvent;
 
 /* A fired event */
+/**
+ * @brief 触发的事件
+ * 
+ */
 typedef struct aeFiredEvent {
-    int fd;
+    /* 发生事件的套接字，目前只有inet和unix */
+    int fd; 
+    /* fd上发生的事件类型 */
     int mask;
 } aeFiredEvent;
 
 /* State of an event based program */
+/**
+ * @brief 事件管理器，整个进程只有一个
+ */
 typedef struct aeEventLoop {
-   
+    //最大的tcp socket的fd
     int maxfd;   /* highest file descriptor currently registered */
-    //最多持有这么（最大链接+128）
+    //最多持有这么多连接（最大链接+128），events和fired 数组的大小
     int setsize; /* max number of file descriptors tracked */
-     //记录最大的定时事件id
+     //记录最大的定时事件id（放几个为几），存放定时事件会自增
     long long timeEventNextId;
     time_t lastTime;     /* Used to detect system clock skew */
-    //已注册的文件事件通过
+    //已注册的文件事件处理器，在initServer里，一个fd绑定一个
     aeFileEvent *events; /* Registered events */
-    //触发的的事件（在ae中会把所有触发的事件丢到这里）
+    //触发的的事件（在ae中会把所有从epoll里拉取到的事件丢到这里）
     aeFiredEvent *fired; /* Fired events */
-    //定时事件
+    //定时事件链表的头节点
     aeTimeEvent *timeEventHead;
     //事件循环结束标识
     int stop;
+    //epoll的数据，
     void *apidata; /* This is used for polling API specific data */
+    //aeProcessEvents处理前执行（每循环一次执行一次）
     aeBeforeSleepProc *beforesleep;
+    //aeApiPoll 后执行
     aeBeforeSleepProc *aftersleep;
 } aeEventLoop;
 
 /* Prototypes */
 /**
- * @brief 创建aeEventLoop
+ * @brief 创建事件监听器
  * 
- * @param setsize ，最大链接数+128
+ * @param setsize 比配置的最大链接数要多128，为了安全处理（比如有的处理完了，还没有释放，多创建的就相当于缓冲队列了）
  * @return aeEventLoop* 
  */
 aeEventLoop *aeCreateEventLoop(int setsize);
@@ -130,6 +143,19 @@ aeEventLoop *aeCreateEventLoop(int setsize);
  */
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
+/**
+ * @brief 创建文件事件监听器并放入到eventLoop->events中
+ *   注册acceptTcpHandler处理 AE_READABLE
+ *   注册readQueryFromClient 处理AE_READABLE
+ * @param eventLoop 
+ * @param fd 
+ *    当是acceptTcpHandler时，对应的监听的tcp socket的fd值
+ *    当时readQueryFromClient时
+ * @param mask 
+ * @param proc 处理器acceptTcpHandler
+ * @param clientData 
+ * @return int 
+ */
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData);
 /**

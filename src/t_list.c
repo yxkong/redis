@@ -205,29 +205,39 @@ void pushGenericCommand(client *c, int where) {
             return;
         }
     }
-
+    //取出list的对象
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
+    //不是list，直接返回
     if (lobj && lobj->type != OBJ_LIST) {
         addReply(c,shared.wrongtypeerr);
         return;
     }
-
+    //遍历所有的val
     for (j = 2; j < c->argc; j++) {
+        //不存在list
         if (!lobj) {
+            //创建一个qucklist类型的list
             lobj = createQuicklistObject();
+            //设置list的 size和压缩深度
             quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
                                 server.list_compress_depth);
+            //添加entry到hash表
             dbAdd(c->db,c->argv[1],lobj);
         }
+        //将数据push到list
         listTypePush(lobj,c->argv[j],where);
         pushed++;
     }
+    //
     addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
+    //如果push成功
     if (pushed) {
+        //创建一个时间
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
-
+        //发送建修改信号
         signalModifiedKey(c->db,c->argv[1]);
+        //发送一个lpush或rpush事件
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
     server.dirty += pushed;

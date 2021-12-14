@@ -69,12 +69,7 @@
     #endif
 #endif
 
-/**
- * @brief 创建事件监听器
- * 
- * @param setsize 比配置的最大链接数要多96，为了安全处理（比如有的处理完了，还没有释放，多创建的就相当于缓冲队列了）
- * @return aeEventLoop* 
- */
+
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
@@ -153,13 +148,13 @@ void aeStop(aeEventLoop *eventLoop) {
 }
 
 /**
- * @brief 创建文件事件监听器并放入到eventLoop->events中
- *   注册acceptTcpHandler处理AE_READABLE和AE_WRITABLE
+ * @brief 创建文件事件，并将fd加入到对应的epoll里
+ * 回调以后执行对应的处理器
  * @param eventLoop 
- * @param fd 对应tcp socket的fd值
- * @param mask 
- * @param proc 处理器acceptTcpHandler
- * @param clientData 
+ * @param fd 对应的请求的fd
+ * @param mask 事件类型
+ * @param proc poll回调后执行的处理器
+ * @param clientData 和client绑定（引用地址）
  * @return int 
  */
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
@@ -169,15 +164,16 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         errno = ERANGE;
         return AE_ERR;
     }
-    // 将创建的aeFileEvent 赋值给了&eventLoop->events[fd]
+    // 将创建的aeFileEvent 插入到对应的事件表对应的位置eventLoop->events[fd]（按tcp的原理同一个fd不会出现两次）
     aeFileEvent *fe = &eventLoop->events[fd];
-
+    //添加到操作系统的poll里，每个操作系统都有自己的实现，最终是把监听的对应的fd的事件放入到eventLoop.apidata
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
     fe->mask |= mask;
     // 将处理器给rfileProc和wfileProc（后续会拿着这个直接执行）
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
+    //client的引用
     fe->clientData = clientData;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
@@ -248,10 +244,10 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
  * @brief 注册时间定时器
  * 
  * @param eventLoop 
- * @param milliseconds 
- * @param proc 定时器
- * @param clientData 
- * @param finalizerProc 
+ * @param milliseconds 毫秒
+ * @param proc 任务处理器
+ * @param clientData 都是传入的null
+ * @param finalizerProc  都是传入的null
  * @return long long 
  */
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
@@ -266,6 +262,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te->id = id;
     //计算增加时间后的时间
     aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);
+    //将传入的处理器给timeProc，后续调用timerProc就相当于调用了proc
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
     te->clientData = clientData;
@@ -358,8 +355,9 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         }
     }
     eventLoop->lastTime = now;
-
+    //每次都是拿到头节点
     te = eventLoop->timeEventHead;
+    //拿到timeEventNextId 后-1 是当前处理的maxid
     maxId = eventLoop->timeEventNextId-1;
     while(te) {
         long now_sec, now_ms;
@@ -386,6 +384,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
          * add new timers on the head, however if we change the implementation
          * detail, this check may be useful again: we keep it here for future
          * defense. */
+        //表示该处理器是新获取到maxId后新加的，正常情况下不会这样
         if (te->id > maxId) {
             te = te->next;
             continue;
@@ -429,8 +428,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * @brief 处理eventLoop里等待的 定时任务，文件事件，过期事件
  * @param eventLoop 
  * @param flags 事件类型，
- * 从main中过来是所有的事件，
- * 从networking过来是文件事件
+ * 从main中过来是所有的事件，AE_ALL_EVENTS|AE_CALL_AFTER_SLEEP
+ * 从networking过来是文件事件 AE_FILE_EVENTS|AE_DONT_WAIT
  * @return int 
  */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
@@ -438,6 +437,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     int processed = 0, numevents;
 
     /* Nothing to do? return ASAP */
+    //针对事件类型判断
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
     /* Note that we want call select() even if there are no
@@ -446,14 +446,17 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
      * to fire. */
 
     /**
-     * @brief 这块的意思，是
-     * 如果下一次定时还有一定的时间间隔，那么就让epoll阻塞间隔的时间获取数据
-     * 
+     * @brief 这块的意思是:
+     * eventLoop 有监听的tcp 或者（flags是时间事件且等待处理）
+     * 去获取下一次要执行的timer任务，如果有，计算出间隔时间，
+     *  那在等待读写事件的时候，就最多阻塞对应的时间
+     *  否则就一直阻塞直到有任务到达（如果本身epoll设置有超时时间？）
      */
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
         aeTimeEvent *shortest = NULL;
+        //时间
         struct timeval tv, *tvp;
 
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
@@ -468,7 +471,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
             /* How many milliseconds we need to wait for the next
              * time event to fire? */
-            //计算下次触发的时间
+            //计算下次定期任务触发的时间间隔,也是epoll等待的时间
             long long ms =
                 (shortest->when_sec - now_sec)*1000 +shortest->when_ms - now_ms;
 
@@ -499,22 +502,24 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
          * some event fires. */
         
         /**
-         * @brief 从epoll里拿到numevents数量的数据
-         * 有时间，就阻塞指定的时间，没有时间，直到有数据，这样定时任务也不用执行
+         * @brief 从epoll里拿到numevents数量的数据，会把任务放到fired里，这里并没有指定事件类型
+         * 有时间，就阻塞指定的时间，
+         * 没有时间，直到有数据，这时定时任务也不用执行（redis是极简主义，猜测作者的意图，你都没有读写请求，我还处理定期任务干啥）
          */
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */
-        //把eventLoop扔进去了
+        //执行aftersleep
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
 
         /**
          * @brief 执行触发的事件
-         * 
          */
         for (j = 0; j < numevents; j++) {
-            //获取一个事件处理器
+            /**
+             * @brief 从注册的事件表中拿到对应fd的事件，插入逻辑在aeCreateFileEvent
+             */
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
@@ -531,6 +536,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * This is useful when, for instance, we want to do things
              * in the beforeSleep() hook, like fsynching a file to disk,
              * before replying to a client. */
+            //反转主要是为了持久化设置的，在持久化的时候，设置的屏障，等后续看持久化的代码再详解 TODO
             int invert = fe->mask & AE_BARRIER;
 
             /* Note the "fe->mask & mask & ..." code: maybe an already
@@ -540,13 +546,24 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * Fire the readable event if the call sequence is not
              * inverted. */
             
-            //处理读事件
+            /**
+             * @brief 读事件（AE_READABLE）处理器包括：
+             * 由acceptTcpHandler处理的，在initServer里创建
+             * 由readQueryFromClient处理的，在acceptTcpHandler.acceptCommonHandler.createClient里创建
+             * TODO 其他的读事件后续分析
+             * 
+             * 写事件（AE_WRITABLE）处理器包括：
+             * 由sendReplyToClient 处理的，在beforeSleep->handleClientsWithPendingWrites里创建
+             * TODO  其他的写事件后续分析
+             */
             if (!invert && fe->mask & mask & AE_READABLE) {
+                //rfileProc和wfileProc由aeCreateFileEvent 创建fe时，传入的处理器，和fd绑定的,fe->clientData 是创建fe时的client
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                 fired++;
             }
 
             /* Fire the writable event. */
+            //处理写事件
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!fired || fe->wfileProc != fe->rfileProc) {
                     fe->wfileProc(eventLoop,fd,fe->clientData,mask);
@@ -556,18 +573,19 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
             /* If we have to invert the call, fire the readable event now
              * after the writable one. */
+            // 反转调用，
             if (invert && fe->mask & mask & AE_READABLE) {
                 if (!fired || fe->wfileProc != fe->rfileProc) {
                     fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                     fired++;
                 }
             }
-
+            //处理次数+1
             processed++;
         }
     }
     /* Check time events */
-    //处理定时任务
+    //处理定期任务主要是serverCron
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
 
@@ -606,6 +624,7 @@ void aeMain(aeEventLoop *eventLoop) {
      //只要没有停止，就循环执行，这个是主线程
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
+            //每次循环前执行beforesleep
             eventLoop->beforesleep(eventLoop);
         aeProcessEvents(eventLoop, AE_ALL_EVENTS|AE_CALL_AFTER_SLEEP);
     }
