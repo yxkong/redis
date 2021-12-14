@@ -14,6 +14,7 @@ release
 misc/*
 src/release.h
 tests/test.c
+tests/a.out
 appendonly.aof
 SHORT_TERM_TODO
 release.h
