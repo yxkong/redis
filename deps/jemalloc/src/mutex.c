@@ -29,6 +29,14 @@ static malloc_mutex_t	*postponed_mutexes = NULL;
 
 #if defined(JEMALLOC_LAZY_LOCK) && !defined(_WIN32)
 JEMALLOC_EXPORT int
+/**
+ * @brief 创建线程
+ * 
+ * @param thread 当前线程的id
+ * @param attr 
+ * @param start_routine  任务内容
+ * @param arg 参数
+ */
 pthread_create(pthread_t *__restrict thread,
     const pthread_attr_t *__restrict attr, void *(*start_routine)(void *),
     void *__restrict arg) {

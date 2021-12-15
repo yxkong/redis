@@ -3038,6 +3038,14 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
  * impossible to bind, or no bind addresses were specified in the server
  * configuration but the function is not able to bind * for at least
  * one of the IPv4 or IPv6 protocols. */
+
+/**
+ * @brief 6.0这里做了优化
+ * 将原来5.0中的int *fds, int *count 抽成了socketFds
+ * @param port 
+ * @param sfd 
+ * @return int 
+ */
 int listenToPort(int port, socketFds *sfd) {
     int j;
     char **bindaddr = server.bindaddr;
@@ -3055,9 +3063,11 @@ int listenToPort(int port, socketFds *sfd) {
         int optional = *addr == '-';
         if (optional) addr++;
         if (strchr(addr,':')) {
+            //sfd.fd[1]是ipv6的fd
             /* Bind IPv6 address. */
             sfd->fd[sfd->count] = anetTcp6Server(server.neterr,port,addr,server.tcp_backlog);
         } else {
+            //sfd.fd[0]是ipv4的fd
             /* Bind IPv4 address. */
             sfd->fd[sfd->count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
         }
@@ -3077,6 +3087,7 @@ int listenToPort(int port, socketFds *sfd) {
             closeSocketListeners(sfd);
             return C_ERR;
         }
+        //非阻塞
         anetNonBlock(NULL,sfd->fd[sfd->count]);
         anetCloexec(sfd->fd[sfd->count]);
         sfd->count++;
