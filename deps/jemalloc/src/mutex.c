@@ -34,7 +34,7 @@ JEMALLOC_EXPORT int
  * 
  * @param thread 当前线程的id
  * @param attr 
- * @param start_routine  任务内容
+ * @param start_routine  线程任务内容
  * @param arg 参数
  */
 pthread_create(pthread_t *__restrict thread,
