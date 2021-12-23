@@ -1528,7 +1528,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     flushAppendOnlyFile(0);
 
     /* Handle writes with pending output buffers. */
-    //处理等待的回写队列
+    //处理等待的回写队列（命令执行成功，已经写入：server.clients_pending_write）
     handleClientsWithPendingWrites();
 
     /* Before we are going to sleep, let the threads access the dataset by
@@ -2837,9 +2837,12 @@ int processCommand(client *c) {
      * the event loop since there is a busy Lua script running in timeout
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
+    //设置了最大内存，并且lua脚本执行没有超时
     if (server.maxmemory && !server.lua_timedout) {
         //如果有必要的话回收内存
+
         int out_of_memory = freeMemoryIfNeededAndSafe() == C_ERR;
+
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;

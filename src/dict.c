@@ -298,6 +298,15 @@ int dictAdd(dict *d, void *key, void *val)
  *
  * If key was added, the hash entry is returned to be manipulated by the caller.
  */
+
+/**
+ * @brief 
+ * 
+ * @param d db->expires
+ * @param key 
+ * @param existing 已经存在，赋值给existing
+ * @return dictEntry* 
+ */
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 {
     long index;
@@ -317,6 +326,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
+    //头插法
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -361,6 +371,14 @@ int dictReplace(dict *d, void *key, void *val)
  * existing key is returned.)
  *
  * See dictAddRaw() for more information. */
+
+/**
+ * @brief 
+ * 
+ * @param d  db->expires
+ * @param key 
+ * @return dictEntry* 
+ */
 dictEntry *dictAddOrFind(dict *d, void *key) {
     dictEntry *entry, *existing;
     entry = dictAddRaw(d,key,&existing);
@@ -690,6 +708,18 @@ dictEntry *dictGetRandomKey(dict *d)
  * of continuous elements to run some kind of algorithm or to produce
  * statistics. However the function is much faster than dictGetRandomKey()
  * at producing N elements. */
+
+/**
+ * @brief 随机采样
+ * 1，随机定位到hash表的索引
+ * 2，采样，如果采样为空，索引+1；
+ * 3，如果连续count次数的采样都为空，再重新计算hash的索引
+ * 4，找到对应的hash桶，连续取count个key，返回
+ * @param d 采样来源
+ * @param des 采样结果数组的元素首地址
+ * @param count 采样总数
+ * @return unsigned int 
+ */
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     unsigned long j; /* internal hash table id, 0 or 1. */
     unsigned long tables; /* 1 or 2 tables? */
@@ -713,13 +743,16 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
         maxsizemask = d->ht[1].sizemask;
 
     /* Pick a random point inside the larger table. */
+    //通过随机函数定位到hash表的索引
     unsigned long i = random() & maxsizemask;
     unsigned long emptylen = 0; /* Continuous empty entries so far. */
     while(stored < count && maxsteps--) {
+        //如果是rehash，就是从2张hash表里采样，否则1张hash表
         for (j = 0; j < tables; j++) {
             /* Invariant of the dict.c rehashing: up to the indexes already
              * visited in ht[0] during the rehashing, there are no populated
              * buckets, so we can skip ht[0] for indexes between 0 and idx-1. */
+            //进行了再次rehash校验
             if (tables == 2 && j == 0 && i < (unsigned long) d->rehashidx) {
                 /* Moreover, if we are currently out of range in the second
                  * table, there will be no elements in both tables up to
@@ -738,15 +771,25 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
             if (he == NULL) {
                 emptylen++;
                 if (emptylen >= 5 && emptylen > count) {
+                    //如果5次取样都为空，进行再随机
                     i = random() & maxsizemask;
                     emptylen = 0;
                 }
             } else {
                 emptylen = 0;
+                //如果一个槽位的key够count个，就返回
                 while (he) {
                     /* Collect all the elements of the buckets found non
                      * empty while iterating. */
+                    
+                    /**
+                     * 数组名 = 数组首元素指针
+                     * 用des来访问第一个元素，也可以使用(des+N)来访问第N个元素
+                     */
+
+                    //把he放到des数组对应的位置，数组第一位是0
                     *des = he;
+                    //相当于数组索引位后移
                     des++;
                     he = he->next;
                     stored++;
@@ -754,6 +797,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                 }
             }
         }
+        //防溢出
         i = (i+1) & maxsizemask;
     }
     return stored;

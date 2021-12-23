@@ -500,6 +500,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         return;
 
     if (unit == UNIT_SECONDS) when *= 1000;
+    //计算最终到期时间，是一个具体的时间值
     when += basetime;
 
     /* No key, return zero. */

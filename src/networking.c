@@ -1084,6 +1084,15 @@ client *lookupClientByID(uint64_t id) {
 
 /* Write data in output buffers to client. Return C_OK if the client
  * is still valid after the call, C_ERR if it was freed. */
+
+/**
+ * @brief 写回客户端
+ * 
+ * @param fd 
+ * @param c 
+ * @param handler_installed 
+ * @return int 
+ */
 int writeToClient(int fd, client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
@@ -1181,6 +1190,15 @@ int writeToClient(int fd, client *c, int handler_installed) {
 }
 
 /* Write event handler. Just send data to the client. */
+
+/**
+ * @brief 写回client中的响应内容到用户
+ * 
+ * @param el aeEventLoop
+ * @param fd 对应关联的fd id
+ * @param privdata 待处理的数据
+ * @param mask 
+ */
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(mask);
@@ -1191,6 +1209,13 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
  * we can just write the replies to the client output buffer without any
  * need to use a syscall in order to install the writable event handler,
  * get it called, and so forth. */
+
+
+/**
+ * @brief 处理等代写客户端
+ * 
+ * @return int 
+ */
 int handleClientsWithPendingWrites(void) {
     listIter li;
     listNode *ln;

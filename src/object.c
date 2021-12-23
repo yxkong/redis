@@ -60,13 +60,13 @@ robj *createObject(int type, void *ptr) {
      * alternatively the LFU counter. */
 
     /**
-     * 如果是LFU的淘汰策略
-     * 
+     * 如果是LFU的淘汰策略，设置高16位为分钟级的时间戳，设置低8位为LFU的计数值，默认值为5
+     * 为了解决数据还没有预热就被冲掉的问题
      */
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
-        //赋值为时间戳
+        //LRU，就赋值为LRU时钟
         o->lru = LRU_CLOCK();
     }
     return o;

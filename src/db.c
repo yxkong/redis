@@ -1144,7 +1144,9 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(db->dict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
+    //将key添加到db->expires 表中
     de = dictAddOrFind(db->expires,dictGetKey(kde));
+    //将到期时间赋值给s64
     dictSetSignedIntegerVal(de,when);
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;

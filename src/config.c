@@ -340,6 +340,7 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"maxmemory-samples") && argc == 2) {
+            //设置随机采样
             server.maxmemory_samples = atoi(argv[1]);
             if (server.maxmemory_samples <= 0) {
                 err = "maxmemory-samples must be 1 or greater";
@@ -2260,6 +2261,11 @@ int rewriteConfig(char *path) {
  * CONFIG command entry point
  *----------------------------------------------------------------------------*/
 
+/**
+ * @brief config命令执行
+ * 
+ * @param c 
+ */
 void configCommand(client *c) {
     /* Only allow CONFIG GET while loading. */
     if (server.loading && strcasecmp(c->argv[1]->ptr,"get")) {
