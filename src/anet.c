@@ -57,7 +57,14 @@ static void anetSetError(char *err, const char *fmt, ...)
     vsnprintf(err, ANET_ERR_LEN, fmt, ap);
     va_end(ap);
 }
-
+/**
+ * @brief 设置网络阻塞状态
+ * 
+ * @param err 
+ * @param fd 
+ * @param non_block 1，非阻塞，0阻塞
+ * @return int 
+ */
 int anetSetBlock(char *err, int fd, int non_block) {
     int flags;
 
@@ -81,7 +88,7 @@ int anetSetBlock(char *err, int fd, int non_block) {
     return ANET_OK;
 }
 /**
- * @brief anet设置非阻塞的方法
+ * @brief 设置网络非阻塞
  * 
  * @param err 
  * @param fd 
@@ -90,7 +97,13 @@ int anetSetBlock(char *err, int fd, int non_block) {
 int anetNonBlock(char *err, int fd) {
     return anetSetBlock(err,fd,1);
 }
-
+/**
+ * @brief 设置网络阻塞
+ * 
+ * @param err 
+ * @param fd 
+ * @return int 
+ */
 int anetBlock(char *err, int fd) {
     return anetSetBlock(err,fd,0);
 }

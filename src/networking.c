@@ -1193,7 +1193,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
 /**
  * @brief 写回client中的响应内容到用户
- * 
+ *
  * @param el aeEventLoop
  * @param fd 对应关联的fd id
  * @param privdata 待处理的数据
@@ -1701,7 +1701,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     size_t qblen;
     UNUSED(el);
     UNUSED(mask);
-
+    //io的buffer大小
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
      * that is large enough, try to maximize the probability that the query
@@ -1711,7 +1711,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
      * Redis Object representing the argument. */
     
     /**
-     * @brief 批量处理
+     * @brief 如果是多任务模式，是一个处理流程
      */
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
@@ -1722,9 +1722,10 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          * for example once we resume a blocked client after CLIENT PAUSE. */
         if (remaining > 0 && remaining < readlen) readlen = remaining;
     }
-
+    //获取客户端累计缓冲区长度，正常为0
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
+    //申请查询缓冲区的空间大小（用于承接读取的内容）
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
     //从缓冲区要读取内容长度
     nread = read(fd, c->querybuf+qblen, readlen);
@@ -1744,11 +1745,14 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Append the query buffer to the pending (not applied) buffer
          * of the master. We'll use this buffer later in order to have a
          * copy of the string applied by the last command executed. */
-        //扩容空间
-        c->pending_querybuf = sdscatlen(c->pending_querybuf,
-                                        c->querybuf+qblen,nread);
+        
+        /**
+         * @brief 扩容空间
+         * 将
+         */
+        c->pending_querybuf = sdscatlen(c->pending_querybuf, c->querybuf+qblen,nread);
     }
-
+    //
     sdsIncrLen(c->querybuf,nread);
     //设置客户端的最后操作时间
     c->lastinteraction = server.unixtime;

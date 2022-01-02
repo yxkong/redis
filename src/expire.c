@@ -470,7 +470,12 @@ void flushSlaveKeysWithExpireList(void) {
         slaveKeysWithExpire = NULL;
     }
 }
-
+/**
+ * @brief 检查是否过期
+ * 
+ * @param when key的到期时间
+ * @return int 
+ */
 int checkAlreadyExpired(long long when) {
     /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
      * should never be executed as a DEL when load the AOF or in the context

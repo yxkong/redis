@@ -133,23 +133,27 @@ void bioInit(void) {
      * 
      */
     for (j = 0; j < BIO_NUM_OPS; j++) {
-        //初始化一个NUll 的互斥锁
+        //初始化一个NUll的&bio_mutex[j]互斥锁
         pthread_mutex_init(&bio_mutex[j],NULL);
-        //新任务条件变量
+        //初始化新任务&bio_newjob_cond[j]的条件变量
         pthread_cond_init(&bio_newjob_cond[j],NULL);
-        //下一个执行的条件变量
+        //初始化下一个执行任务bio_step_cond[j]的条件变量
         pthread_cond_init(&bio_step_cond[j],NULL);
-        //创建一个list
+        //为对应的线程创建创建一个list
         bio_jobs[j] = listCreate();
-        //待处理
+        //待处理任务个数
         bio_pending[j] = 0;
     }
 
     /* Set the stack size as by default it may be small in some system */
+    //初始化线程属性
     pthread_attr_init(&attr);
+    //获取线程栈大小
     pthread_attr_getstacksize(&attr,&stacksize);
     if (!stacksize) stacksize = 1; /* The world is full of Solaris Fixes */
+    //如果栈大小小于4mb，一直翻倍，知道大于4mb
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
+    //设置线程栈大小（默认是当前用户的操作系统限制）
     pthread_attr_setstacksize(&attr, stacksize);
 
     /* Ready to spawn our threads. We use the single argument the thread
@@ -158,9 +162,9 @@ void bioInit(void) {
     
     /**
      * @brief 创建后端线程，并放入线程组
-     * 
      */
     for (j = 0; j < BIO_NUM_OPS; j++) {
+        //线程号
         void *arg = (void*)(unsigned long) j;
         //创建线程，并启动bioProcessBackgroundJobs
         if (pthread_create(&thread,&attr,bioProcessBackgroundJobs,arg) != 0) {
@@ -207,7 +211,7 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     listAddNodeTail(bio_jobs[type],job);
     //待处理任务数+1
     bio_pending[type]++;
-    //解除bio_newjob_cond的阻塞状态（添加完任务就解除，这样bioProcessBackgroundJobs才能执行）
+    //解除bio_newjob_cond[type]位置的阻塞状态（添加完任务就解除，这样bioProcessBackgroundJobs才能执行）
     pthread_cond_signal(&bio_newjob_cond[type]);
     // 释放锁
     pthread_mutex_unlock(&bio_mutex[type]);
@@ -216,7 +220,7 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
 /**
  * @brief 后台任务处理
  * 
- * @param arg 
+ * @param arg 线程号索引
  * @return void* 
  */
 void *bioProcessBackgroundJobs(void *arg) {
@@ -243,9 +247,9 @@ void *bioProcessBackgroundJobs(void *arg) {
      * 
      */
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    //设置奔现从取消动作的执行时机 PTHREAD_CANCEL_ASYNCHRONOUS 和PTHREAD_CANCEL_DEFFERED
+    //设置本线程取消动作的执行时机 PTHREAD_CANCEL_ASYNCHRONOUS 和PTHREAD_CANCEL_DEFFERED
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-
+    //对应的线程以进来就上锁
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
      * receive the watchdog signal. */
@@ -263,9 +267,9 @@ void *bioProcessBackgroundJobs(void *arg) {
         
         /**
          * @brief 如果任务列表已经空了，那么就通过pthread_cond_wait 等待bio_newjob_cond的信号，以及互斥锁的释放
-         * 
          */
         if (listLength(bio_jobs[type]) == 0) {
+            //阻塞等待，等到新任务了，继续往下走
             pthread_cond_wait(&bio_newjob_cond[type],&bio_mutex[type]);
             continue;
         }
@@ -274,9 +278,11 @@ void *bioProcessBackgroundJobs(void *arg) {
         job = ln->value;
         /* It is now possible to unlock the background system as we know have
          * a stand alone job structure to process.*/
+        //有新任务了，解锁执行
         pthread_mutex_unlock(&bio_mutex[type]);
 
         /* Process the job accordingly to its type. */
+        //根据线程索引，处理不同的任务
         if (type == BIO_CLOSE_FILE) {
             //关闭任务
             close((long)job->arg1);
@@ -303,17 +309,23 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
+        //处理完一个就加锁，如果没有任务处理就阻塞在pthread_cond_wait
         pthread_mutex_lock(&bio_mutex[type]);
         listDelNode(bio_jobs[type],ln);
         bio_pending[type]--;
 
         /* Unblock threads blocked on bioWaitStepOfType() if any. */
-        //条件
+        //唤醒&bio_step_cond[type]的线程（这块代码没什么意义，循环里只处理了bio_newjob_cond）
         pthread_cond_broadcast(&bio_step_cond[type]);
     }
 }
 
 /* Return the number of pending jobs of the specified type. */
+/**
+ * @brief aof和内存不够时触发
+ * @param type 任务类型
+ * @return unsigned long long 
+ */
 unsigned long long bioPendingJobsOfType(int type) {
     unsigned long long val;
     pthread_mutex_lock(&bio_mutex[type]);
@@ -332,6 +344,7 @@ unsigned long long bioPendingJobsOfType(int type) {
  * This function is useful when from another thread, we want to wait
  * a bio.c thread to do more work in a blocking way.
  */
+//未找到调用
 unsigned long long bioWaitStepOfType(int type) {
     unsigned long long val;
     pthread_mutex_lock(&bio_mutex[type]);

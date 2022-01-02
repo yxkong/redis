@@ -437,19 +437,19 @@ sds sdsgrowzero(sds s, size_t len) {
  * references must be substituted with the new pointer returned by the call. */
 
 /**
- * @brief sds 拼接，
- * 1，
- * @param s 
- * @param t 
- * @param len 
+ * @brief sds 拼接
+ * @param s 当前的sds
+ * @param t 需要从哪拷贝的指针，大部分都是一个char，部分首地址+长度
+ * @param len 需要拷贝的长度
  * @return sds 
  */
 sds sdscatlen(sds s, const void *t, size_t len) {
     //获取原sds的长度
     size_t curlen = sdslen(s);
-    //空间预分配
+    //空间预分配，如果预留的空间够len，不处理，不够，会调整s的类型
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
+    //将t中复制len长度到s首地址+curlen的位置
     memcpy(s+curlen, t, len);
     sdssetlen(s, curlen+len);
     //拼接\0表示字符串的结尾

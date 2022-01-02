@@ -62,25 +62,71 @@
 struct aeEventLoop;
 
 /* Types and data structures */
+/**
+ *  @brief 
+ * C语言允许用户使用 typedef 关键字来定义自己习惯的数据类型名称，来替代系统默认的基本类型名称、数组类型名称、指针类型名称与用户自定义的结构型名称、共用型名称、枚举型名称等。
+ * 一旦用户在程序中定义了自己的数据类型名称，就可以在该程序中用自己的数据类型名称来定义变量的类型、数组的类型、指针变量的类型与函数的类型等。
+ * 
+ * 这里类似于java中的接口，定义一个aeFileProc类型的标准，
+ * 有以下实现：这些都是由aeCreateFileEvent创建时找到的
+ * 主流程处理：
+ *   acceptTcpHandler   tcp socket 处理器
+ *   readQueryFromClient 当有心情求时读客户端信息处理器
+ *   sendReplyToClient  写回客户端处理器（好多地方都会使用）
+ * 哨兵相关的处理器：
+ *   redisAeReadEvent
+ *   redisAeWriteEvent
+ * 主从同步的处理器：
+ *   sendBulkToSlave
+ *   readSyncBulkPayload
+ *   syncWithMaster
+ * cluster处理器
+ *   clusterAcceptHandler
+ *   clusterReadHandler
+ *   clusterWriteHandler
+ * aof相关处理器
+ *   aofChildWriteDiffData
+ *   aofChildPipeReadable
+ * @param eventLoop 全局
+ * @param fd 处理器对应的fd
+ * @param clientData 客户端私有数据
+ * @param mask 处理类型掩码
+ * @return typedef 
+ */
 typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
 typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
 typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
+/**
+ * @brief 文件事件结构体
+ * 
+ */
 typedef struct aeFileEvent {
+    //处理的事件类型掩码
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
+    //读处理器，看aeFileProc的备注
     aeFileProc *rfileProc;
+    //写处理器
     aeFileProc *wfileProc;
+    //client的数据
     void *clientData;
 } aeFileEvent;
 
 /* Time event structure */
+/**
+ * @brief 定时事件结构体
+ * 
+ */
 typedef struct aeTimeEvent {
+    //时间事件的身份标识
     long long id; /* time event identifier. */
+    //当前时间秒
     long when_sec; /* seconds */
+    //当前时间毫秒
     long when_ms; /* milliseconds */
-    //会把执行任扔这里
+    //时间任务处理器
     aeTimeProc *timeProc;
     aeEventFinalizerProc *finalizerProc;
     void *clientData;
@@ -90,7 +136,7 @@ typedef struct aeTimeEvent {
 
 /* A fired event */
 /**
- * @brief 触发的事件
+ * @brief 触发的事件，在poll返回时封装到这里
  * 
  */
 typedef struct aeFiredEvent {
@@ -102,12 +148,12 @@ typedef struct aeFiredEvent {
 
 /* State of an event based program */
 /**
- * @brief 事件管理器，整个进程只有一个
+ * @brief 事件管理器，整个进程只有一个，全局管理所有的事件，这也是为什么说redis是事件驱动的原因
  */
 typedef struct aeEventLoop {
     //最大的tcp socket的fd
     int maxfd;   /* highest file descriptor currently registered */
-    //最多持有这么多连接（最大链接+128），events和fired 数组的大小
+    //最多持有这么多连接（最大链接+128），也是events和fired 数组的大小
     int setsize; /* max number of file descriptors tracked */
      //记录最大的定时事件id（放几个为几），存放定时事件会自增
     long long timeEventNextId;
@@ -150,7 +196,7 @@ void aeStop(aeEventLoop *eventLoop);
  * @param eventLoop 
  * @param fd 
  *    当是acceptTcpHandler时，对应的监听的tcp socket的fd值
- *    当时readQueryFromClient时
+ *    当是readQueryFromClient时，监听的是新链接tcp 产生的cfd这个值
  * @param mask 
  * @param proc 处理器acceptTcpHandler
  * @param clientData 
@@ -167,12 +213,26 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
  */
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd);
+/**
+ * @brief 创建定时任务
+ * @param eventLoop 
+ * @param milliseconds 
+ * @param proc  对应的定时事件处理器
+ * @param clientData 
+ * @param finalizerProc 
+ * @return long long 
+ */
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc);
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
 int aeWait(int fd, int mask, long long milliseconds);
+/**
+ * @brief 事件处理器核心入口
+ * 
+ * @param eventLoop 
+ */
 void aeMain(aeEventLoop *eventLoop);
 char *aeGetApiName(void);
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);

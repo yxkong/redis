@@ -696,7 +696,7 @@ typedef struct RedisModuleDigest {
 #define OBJ_SHARED_REFCOUNT INT_MAX
 
 /**
- * @brief 
+ * @brief redis对象的数据结构体，在监听到数据后，都会将key和value包装成这个对象
  * OBJ_STRING -> OBJ_ENCODING_INT  使用整数值实现的字符串对象
  * OBJ_STRING -> OBJ_ENCODING_RAW  使用sds实现的字符串对象
  * OBJ_STRING -> OBJ_ENCODING_EMBSTR 使用embstr编码的sds实现的字符串
@@ -723,7 +723,7 @@ typedef struct redisObject {
      * LFU的策略下：24位拆为两块，高16位(最大值65535)低8位（最大值255）
      * 高16存储的是 存储的是分钟级&最大存储位的值，要溢出的话，需要65535%60%24 约 45天溢出
      * 低8位存储的是近似统计位
-     * 在lookupKey
+     * 在lookupKey进行更新
      */
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
@@ -764,7 +764,7 @@ typedef struct clientReplyBlock {
 typedef struct redisDb {
     //当前database的全局hash表
     dict *dict;                 /* The keyspace for this DB */
-    // 设置过期时间key的集合
+    // 设置过期时间key的集合，这个集合里包含在全局hash表里（正常情况下）
     dict *expires;              /* Timeout of keys with a timeout set */
     // 阻塞操作的客户端列表：如：BRPOP,  BLPOP, BRPOPLPUSH，redisClient.bpop 里记录了等待哪些key，超时时间
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
@@ -856,7 +856,7 @@ typedef struct client {
     int fd;                 /* Client socket. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
-    /**客户端累计的查询缓冲区大小*/
+    //客户端累计的查询缓冲区大小
     sds querybuf;           /* Buffer we use to accumulate client queries. */
     size_t qb_pos;          /* The position we have read in querybuf. */
     //待同步到从库的缓冲区到小
@@ -864,6 +864,7 @@ typedef struct client {
                                represents the yet not applied portion of the
                                replication stream that we are receiving from
                                the master. */
+    // 最近100毫秒querybuf的峰值
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
     //参数数量
     int argc;               /* Num of arguments of current command. */

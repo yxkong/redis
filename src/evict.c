@@ -70,6 +70,9 @@ Redis记录访问次数使用了一种近似计数算法——Morris算法。Mor
  * Empty entries have the key pointer set to NULL. */
 #define EVPOOL_SIZE 16
 #define EVPOOL_CACHED_SDS_SIZE 255
+/**
+ * @brief 待淘汰数据候选集合
+ */
 struct evictionPoolEntry {
     //待淘汰数据的空闲时间
     unsigned long long idle;    /* Object idle time (inverse frequency for LFU) */
@@ -79,7 +82,10 @@ struct evictionPoolEntry {
     //所在db的索引
     int dbid;                   /* Key DB number. */
 };
-
+/**
+ * @brief 在本文件内共享，待淘汰数据候选集合
+ * 
+ */
 static struct evictionPoolEntry *EvictionPoolLRU;
 
 /* ----------------------------------------------------------------------------
@@ -183,6 +189,10 @@ unsigned long long estimateObjectIdleTime(robj *o) {
  * evicted in the whole database. */
 
 /* Create a new eviction pool. */
+/**
+ * @brief 创建待淘汰候选集合
+ * 
+ */
 void evictionPoolAlloc(void) {
     struct evictionPoolEntry *ep;
     int j;
@@ -816,6 +826,7 @@ cant_free:
     /* We are here if we are not able to reclaim memory. There is only one
      * last thing we can try: check if the lazyfree thread has jobs in queue
      * and wait... */
+    //如果没有空闲内存，这里会检查lazy-free是否有任务在队列中等待
     while(bioPendingJobsOfType(BIO_LAZY_FREE)) {
         if (((mem_reported - zmalloc_used_memory()) + mem_freed) >= mem_tofree)
             break;
