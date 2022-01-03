@@ -31,24 +31,29 @@
 
 #include <sys/epoll.h>
 
-/**
- * @brief epoll 只有1024
- * 
- */
 typedef struct aeApiState {
+    //epoll的句柄(内核)
     int epfd;
+    //事件数组
     struct epoll_event *events;
 } aeApiState;
 
+/**
+ * @brief e
+ * @param eventLoop 
+ * @return int 
+ */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
     if (!state) return -1;
+    //存放事件数组，最大链接数+128
     state->events = zmalloc(sizeof(struct epoll_event)*eventLoop->setsize);
     if (!state->events) {
         zfree(state);
         return -1;
     }
+    //创建一个epoll的句柄，1024告诉内核这个监听的数目有多大
     state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
     if (state->epfd == -1) {
         zfree(state->events);
@@ -74,11 +79,19 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(state);
 }
 
+/**
+ * @brief 添加监听事件到epool里
+ * @param eventLoop 
+ * @param fd 
+ * @param mask 
+ * @return int 
+ */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
     struct epoll_event ee = {0}; /* avoid valgrind warning */
     /* If the fd was already monitored for some event, we need a MOD
      * operation. Otherwise we need an ADD operation. */
+    //epoll的动作，有数据就是EPOLL_CTL_ADD
     int op = eventLoop->events[fd].mask == AE_NONE ?
             EPOLL_CTL_ADD : EPOLL_CTL_MOD;
 
@@ -92,6 +105,16 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
     ee.data.fd = fd;
+    /**
+     * @brief epoll_ctl epoll的事件注册
+     * state->epfd  epoll的内核fd
+     * op epoll的动作，
+     *    EPOLL_CTL_ADD 注册新的fd到epfd中
+     *    EPOLL_CTL_MOD 修改已经注册的fd的监听事件
+     *    EPOLL_CTL_DEL 从epfd中删除一个fd
+     * fd 需要监听的fd
+     * &ee 告诉内核需要监听什么事件
+     */
     if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;
     return 0;
 }
@@ -125,11 +148,16 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     int retval, numevents = 0;
 
     /**
-     * 从epoll里捞出就绪的事件
-     * setsize 告知内核最多捞出的数据 这个值是有epoll创建的一定合法
-     * 0 表示立即返回
-     * >0 表示等待多久
-     * -1 表示阻塞
+     * 从epoll里捞出就绪的事件（等待事件的产生）
+     * state->epfd 监听的内核fd
+     * state->events 从内核得到的事件集合（如果有的话）
+     * eventLoop->setsize 告知内核最多捞出的数据 这个值是有epoll创建的一定合法（就是告诉内核state->events 的大小）
+     * timeout：
+     *  0 表示立即返回
+     *  >0 表示等待多久
+     *  -1 表示阻塞
+     * return  retval
+     *  0 表示超时，正常返回需要处理的事件数目
      */
      
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
@@ -140,8 +168,18 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
         numevents = retval;
         for (j = 0; j < numevents; j++) {
             int mask = 0;
+            //根据事件数组的首地址+j获取对应位置的epoll_event
             struct epoll_event *e = state->events+j;
-
+            /**
+             * @brief 将epool里的事件类型转化成redis的事件类型
+             * EPOLLIN ：表示对应的文件描述符可以读（包括客户端SOCKET正常关闭）；
+             * EPOLLOUT：表示对应的文件描述符可以写；
+             * EPOLLPRI：表示对应的文件描述符有紧急的数据可读（这里应该表示有带外数据到来）；
+             * EPOLLERR：表示对应的文件描述符发生错误；
+             * EPOLLHUP：表示对应的文件描述符被挂断；
+             * EPOLLET： 将EPOLL设为边缘触发(Edge Triggered)模式，这是相对于水平触发(Level Triggered)来说的。
+             * EPOLLONESHOT：只监听一次事件，当监听完这次事件之后，如果还需要继续监听这个socket的话，需要再次把这个socket加入到EPOLL队列里
+             */
             if (e->events & EPOLLIN) mask |= AE_READABLE;
             if (e->events & EPOLLOUT) mask |= AE_WRITABLE;
             if (e->events & EPOLLERR) mask |= AE_WRITABLE;
