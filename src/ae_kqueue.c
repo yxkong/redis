@@ -34,6 +34,7 @@
 #include <sys/time.h>
 
 typedef struct aeApiState {
+    //事件处理的句柄（可以理解为redis进程的fd）
     int kqfd;
     struct kevent *events;
 } aeApiState;
@@ -54,6 +55,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
+    // 为redis进程申请fd
     state->kqfd = kqueue();
     if (state->kqfd == -1) {
         zfree(state->events);
@@ -82,11 +84,11 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 /**
  * @brief 注册事件到 到操作系统，每个操作系统针对读写的事件类型不同
  *  对于evport来说，往npending里增加fd  
- *  对于kqueue来说，就是往kqfd里增加fd
+ *  对于kqueue来说，会和事件处理的fd绑定
  *  对于select来说，就是往对应读写类型的fd_set里面增加fd
- *  对于epoll来说，就是在events中增加/修改感兴趣的事件
+ *  对于epoll来说，会和事件处理的fd绑定
  * @param eventLoop 是为了接收回调数据
- * @param fd 对应监听的fd值
+ * @param fd 对应事件的fd值
  * @param mask 类型
  * @return int 
  */
@@ -102,6 +104,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_WRITABLE) {
         //设置fd监听的时间类型是EVFILT_WRITE
         EV_SET(&ke, fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
+        //将
         if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
     }
     return 0;

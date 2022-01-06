@@ -32,7 +32,7 @@
 #include <sys/epoll.h>
 
 typedef struct aeApiState {
-    //epoll的句柄(内核)
+    //事件处理的句柄（可以理解为redis进程的fd）
     int epfd;
     //事件数组
     struct epoll_event *events;
@@ -54,6 +54,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         return -1;
     }
     //创建一个epoll的句柄，1024告诉内核这个监听的数目有多大
+    // 为redis进程申请fd
     state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
     if (state->epfd == -1) {
         zfree(state->events);

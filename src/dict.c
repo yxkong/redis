@@ -271,11 +271,19 @@ static void _dictRehashStep(dict *d) {
 }
 
 /* Add an element to the target hash table */
+/**
+ * @brief 添加一个key val到对应的hash表
+ * @param d 目标hash表
+ * @param key sds字符串 的指针
+ * @param val robj的指针
+ * @return int 
+ */
 int dictAdd(dict *d, void *key, void *val)
 {
     dictEntry *entry = dictAddRaw(d,key,NULL);
 
     if (!entry) return DICT_ERR;
+    //将val赋值给entry
     dictSetVal(d, entry, val);
     return DICT_OK;
 }
@@ -300,10 +308,10 @@ int dictAdd(dict *d, void *key, void *val)
  */
 
 /**
- * @brief 
+ * @brief 获取或添加dictEntry
  * 
- * @param d db->expires
- * @param key 
+ * @param d 指定的hash表
+ * @param key sds指针
  * @param existing 已经存在，赋值给existing
  * @return dictEntry* 
  */
@@ -317,6 +325,11 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 
     /* Get the index of the new element, or -1 if
      * the element already exists. */
+    
+    /**
+     * @brief 根据key计算hash值，如果存在返回-1，
+     * existing 为对应的指针
+     */
     if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)
         return NULL;
 
@@ -324,7 +337,9 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * Insert the element in top, with the assumption that in a database
      * system it is more likely that recently added entries are accessed
      * more frequently. */
+    //不存在的时候，选择哪个槽
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
+    //申请空间
     entry = zmalloc(sizeof(*entry));
     //头插法
     entry->next = ht->table[index];
@@ -332,6 +347,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
     ht->used++;
 
     /* Set the hash entry fields. */
+    //设置将key放入新生成的entry里
     dictSetKey(d, entry, key);
     return entry;
 }
@@ -388,6 +404,15 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
 /* Search and remove an element. This is an helper function for
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
+
+/**
+ * @brief 通用删除
+ * 
+ * @param d 对应hash表
+ * @param key key
+ * @param nofree 删除是0，unlink 是1
+ * @return dictEntry* 
+ */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     uint64_t h, idx;
     dictEntry *he, *prevHe;
@@ -396,8 +421,9 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
 
     if (dictIsRehashing(d)) _dictRehashStep(d);
+    //计算hash
     h = dictHashKey(d, key);
-
+    //遍历两个hash表
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         he = d->ht[table].table[idx];
@@ -405,11 +431,15 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
         while(he) {
             if (key==he->key || dictCompareKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
+                //从链表上移除
                 if (prevHe)
+                    //非第一个节点的处理逻辑
                     prevHe->next = he->next;
                 else
+                    //第一个节点的逻辑
                     d->ht[table].table[idx] = he->next;
                 if (!nofree) {
+                    //删除的情况，直接释放空间
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
                     zfree(he);
@@ -427,6 +457,14 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
 
 /* Remove an element, returning DICT_OK on success or DICT_ERR if the
  * element was not found. */
+
+/**
+ * @brief 从hash表中删除key
+ * 
+ * @param ht 对应的hash表
+ * @param key 对应的key
+ * @return int 
+ */
 int dictDelete(dict *ht, const void *key) {
     return dictGenericDelete(ht,key,0) ? DICT_OK : DICT_ERR;
 }
@@ -499,7 +537,13 @@ void dictRelease(dict *d)
     _dictClear(d,&d->ht[1],NULL);
     zfree(d);
 }
-
+/**
+ * @brief 根据String类型的key 从对应的hash表中获取dictEntry
+ * 
+ * @param ht 对应的hash表
+ * @param key 
+ * @return dictEntry* 
+ */
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
@@ -509,11 +553,12 @@ dictEntry *dictFind(dict *d, const void *key)
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     //
     if (dictIsRehashing(d)) _dictRehashStep(d);
-    //获取对应的key的hash值
+    //通过key获取hash，并
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
-        //计算key所在的表索引
+         //计算出在hash桶中的位置
         idx = h & d->ht[table].sizemask;
+        //获取对应链表的头节点
         he = d->ht[table].table[idx];
         while(he) {
             if (key==he->key || dictCompareKeys(d, key, he->key))
@@ -1024,6 +1069,16 @@ static unsigned long _dictNextPower(unsigned long size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
+
+/**
+ * @brief 
+ * 
+ * @param d 
+ * @param key 
+ * @param hash 
+ * @param existing 
+ * @return long 
+ */
 static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing)
 {
     unsigned long idx, table;

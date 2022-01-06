@@ -133,7 +133,9 @@ client *createClient(int fd) {
     c->name = NULL;
     c->bufpos = 0;
     c->qb_pos = 0;
+    //客户端累计查询缓冲区
     c->querybuf = sdsempty();
+    //待同步从库缓冲区
     c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
@@ -739,7 +741,7 @@ int clientHasPendingReplies(client *c) {
  * @brief 针对新监听到的请求（fd）处理
  *  主要是创建file event 让readQueryFromClient 监听AE_READABLE 事件
  *  并将client加入到server.clients的队尾
- * @param fd 针对
+ * @param fd 针对tcp监听到的请求创建的的fd
  * @param flags 
  * @param ip 
  */
@@ -1100,7 +1102,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
     while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
-            //直接调用tcp的write了
+            //直接调用socket的写
             nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
@@ -1334,12 +1336,14 @@ int processInlineBuffer(client *c) {
     sds *argv, aux;
     size_t querylen;
 
+    //
     /* Search for end of line */
+    //从对应的c->qb_pos位置起查找c->querybuf 中出现\n的位置（一行结束）
     newline = strchr(c->querybuf+c->qb_pos,'\n');
 
     /* Nothing to do without a \r\n */
-    //有换行就返回C_ERR
     if (newline == NULL) {
+        //单行不能大于64kb？
         if (sdslen(c->querybuf)-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
             addReplyError(c,"Protocol error: too big inline request");
             setProtocolError("too big inline request",c);
@@ -1348,15 +1352,18 @@ int processInlineBuffer(client *c) {
     }
 
     /* Handle the \r\n case. */
+    //相当于特殊处理\r\n的情况，要不然字符串后面会多一个\r
     if (newline && newline != c->querybuf+c->qb_pos && *(newline-1) == '\r')
         newline--, linefeed_chars++;
 
     /* Split the input buffer up to the \r\n */
+    //计算出要截取字符串的长度
     querylen = newline-(c->querybuf+c->qb_pos);
     //获取客户端缓冲区内容
     aux = sdsnewlen(c->querybuf+c->qb_pos,querylen);
-    //将当前命令都分解到argv
+    //将当前命令解析到argv数组
     argv = sdssplitargs(aux,&argc);
+    //释放aux
     sdsfree(aux);
     if (argv == NULL) {
         addReplyError(c,"Protocol error: unbalanced quotes in request");
@@ -1371,6 +1378,7 @@ int processInlineBuffer(client *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Move querybuffer position to the next query in the buffer. */
+    //读取的每一个行都要加一个结束标识\0
     c->qb_pos += querylen+linefeed_chars;
 
     /* Setup argv array on client structure */
@@ -1380,8 +1388,9 @@ int processInlineBuffer(client *c) {
     }
 
     /* Create redis objects for all arguments. */
+    //将读取到的命令参数包装成redisObject对象，并放入到c.argv中
     for (c->argc = 0, j = 0; j < argc; j++) {
-        //所有的参数都会转成redisObject对象
+        //所有的参数都会转成string类型的redisObject对象
         c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
         c->argc++;
     }
@@ -1430,6 +1439,13 @@ static void setProtocolError(const char *errstr, client *c) {
  * This function is called if processInputBuffer() detects that the next
  * command is in RESP format, so the first byte in the command is found
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
+
+/**
+ * @brief 多任务处理
+ * 
+ * @param c 
+ * @return int 
+ */
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
     int ok;
@@ -1587,17 +1603,21 @@ void processInputBuffer(client *c) {
     server.current_client = c;
 
     /* Keep processing while there is something in the input buffer */
+    //从querybuf读取的长度< querybuf的长度，一直执行
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Return if clients are paused. */
+        //从库直接中断
         if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
 
         /* Immediately abort if the client is in the middle of something. */
+        //如果客户端在做别的事，立刻终止
         if (c->flags & CLIENT_BLOCKED) break;
 
         /* Don't process input from the master while there is a busy script
          * condition on the slave. We want just to accumulate the replication
          * stream (instead of replying -BUSY like we do with other clients) and
          * later resume the processing. */
+        //master的lua脚本执行超时 也中断
         if (server.lua_timedout && c->flags & CLIENT_MASTER) break;
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
@@ -1605,12 +1625,13 @@ void processInputBuffer(client *c) {
          * this flag has been set (i.e. don't process more commands).
          *
          * The same applies for clients we want to terminate ASAP. */
+        //客户端回复后关闭或客户端关闭，也不处理
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
         /* Determine request type when unknown. */
-        //推断请求类型
+        //推断请求类型 是单行还是多行
         if (!c->reqtype) {
-            //因为qb_pos初始值是0，所以*开头的，为PROTO_REQ_MULTIBULK；否则为PROTO_REQ_INLINE
+            //因为qb_pos初始值是0，以*开头的，为PROTO_REQ_MULTIBULK；否则为PROTO_REQ_INLINE
             if (c->querybuf[c->qb_pos] == '*') {
                 c->reqtype = PROTO_REQ_MULTIBULK;
             } else {
@@ -1621,7 +1642,7 @@ void processInputBuffer(client *c) {
          * @brief 根据不同类型从缓冲区读取数据,并将客户端执行内容解析到成robj并出入c->argv
          */
         if (c->reqtype == PROTO_REQ_INLINE) {
-
+            //单行任务理逻辑，单行，直接读取一行
             if (processInlineBuffer(c) != C_OK) break;
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
             if (processMultibulkBuffer(c) != C_OK) break;
@@ -1634,7 +1655,7 @@ void processInputBuffer(client *c) {
             resetClient(c);
         } else {
             /* Only reset the client when the command was executed. */
-            //执行命令成功
+            //执行命令
             if (processCommand(c) == C_OK) {
                 if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
                     /* Update the applied replication offset of our master. */
@@ -1671,12 +1692,13 @@ void processInputBuffer(client *c) {
  * is flagged as master. Usually you want to call this instead of the
  * raw processInputBuffer(). */
 void processInputBufferAndReplicate(client *c) {
-    //master节点
+    //非master节点
     if (!(c->flags & CLIENT_MASTER)) {
-        //处理输入缓冲区（主要看这里）
+        //处理输入缓冲区
         processInputBuffer(c);
     } else {
-        //集群同步复制
+        //master节点处理
+        //集群同步前的offset
         size_t prev_offset = c->reploff;
         processInputBuffer(c);
         //有数据才同步
@@ -1701,7 +1723,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     size_t qblen;
     UNUSED(el);
     UNUSED(mask);
-    //io的buffer大小
+    //io的buffer大小,从这里也可以理解客户端一次读取的缓冲区大小为16kb
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
      * that is large enough, try to maximize the probability that the query
@@ -1722,12 +1744,18 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          * for example once we resume a blocked client after CLIENT PAUSE. */
         if (remaining > 0 && remaining < readlen) readlen = remaining;
     }
-    //获取客户端累计缓冲区长度，正常为0
+    //获取客户端累计缓冲区长度，第一次为0
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
-    //申请查询缓冲区的空间大小（用于承接读取的内容）
+    //扩容查询缓冲区的空间大小（用于承接读取的内容）
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
-    //从缓冲区要读取内容长度
+    //
+    /**
+     * @brief 从缓冲区要读取指定长度的内容，
+     * nread表示真实读取的长度
+     *    -1 表示异常
+     *    0 表示客户端关闭
+     */
     nread = read(fd, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (errno == EAGAIN) {
@@ -1747,17 +1775,23 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          * copy of the string applied by the last command executed. */
         
         /**
-         * @brief 扩容空间
-         * 将
+         * @brief 扩容pending_querybuf的空间，以能承接组nread长度的数据
+         * 将c->querybuf中qblen以后的字符复制到c->pending_querybuf中
          */
         c->pending_querybuf = sdscatlen(c->pending_querybuf, c->querybuf+qblen,nread);
     }
-    //
+    /**
+     * 1，先使用了sdsMakeRoomFor扩容了16kb；
+     * 2，使用read将fd中的缓冲区读到c->querybuf，并返回读取到的字符长度nread，这个时候可能只读取了512字节，还有15kb多的剩余
+     * 3，通过sdsIncrLen设置往c->querybuf增加了多少内容
+     */
     sdsIncrLen(c->querybuf,nread);
     //设置客户端的最后操作时间
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
+    //累计读取的长度
     server.stat_net_input_bytes += nread;
+    //client_max_querybuf_len 默认1gb
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 

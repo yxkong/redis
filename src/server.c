@@ -2649,6 +2649,7 @@ void call(client *c, int flags) {
     start = server.ustime;
     //命令执行，会执行对应的redisCommand
     c->cmd->proc(c);
+    //计算执行时间
     duration = ustime()-start;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
@@ -2671,12 +2672,12 @@ void call(client *c, int flags) {
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_SLOWLOG && c->cmd->proc != execCommand) {
-        //记录慢日志
+        //延迟事件
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
         //是否采样
         latencyAddSampleIfNeeded(latency_event,duration/1000);
-        //是否加入到慢日志entry
+        //是否加入到慢日志server.slowlog
         slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
@@ -2758,6 +2759,12 @@ void call(client *c, int flags) {
  * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
+
+/**
+ * @brief 命令执行
+ * @param c 客户端
+ * @return int 
+ */
 int processCommand(client *c) {
     moduleCallCommandFilters(c);
 
@@ -2765,7 +2772,7 @@ int processCommand(client *c) {
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
-    //quit直接退出
+    //quit命令，直接退出，并标记flags为回复后关闭
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
         addReply(c,shared.ok);
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
@@ -2777,7 +2784,7 @@ int processCommand(client *c) {
      //从server.commands字典里查询命令执行命令的映射,c->argv[0]为命令名称
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
-        //未知命令处理
+        //未知命令处理逻辑
         flagTransaction(c);
         sds args = sdsempty();
         int i;
@@ -2840,7 +2847,6 @@ int processCommand(client *c) {
     //设置了最大内存，并且lua脚本执行没有超时
     if (server.maxmemory && !server.lua_timedout) {
         //如果有必要的话回收内存
-
         int out_of_memory = freeMemoryIfNeededAndSafe() == C_ERR;
 
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
@@ -2854,6 +2860,7 @@ int processCommand(client *c) {
             (c->cmd->flags & CMD_DENYOOM ||
              (c->flags & CLIENT_MULTI && c->cmd->proc != execCommand))) {
             flagTransaction(c);
+            //回复oom
             addReply(c, shared.oomerr);
             return C_OK;
         }
@@ -2868,6 +2875,7 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if there are problems persisting on disk
      * and if this is a master instance. */
+    //如果写磁盘异常，那么这个主实例不接受写命令
     int deny_write_type = writeCommandsDeniedByDiskError();
     if (deny_write_type != DISK_ERROR_TYPE_NONE &&
         server.masterhost == NULL &&
@@ -2887,6 +2895,7 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if there are not enough good slaves and
      * user configured the min-slaves-to-write option. */
+    //如果从节点小于配置的min-slaves-to-write option，也不能执行写命令，这块防止了脑裂
     if (server.masterhost == NULL &&
         server.repl_min_slaves_to_write &&
         server.repl_min_slaves_max_lag &&
@@ -2900,6 +2909,7 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if this is a read only slave. But
      * accept write commands if this is our master. */
+    //从库只接受自己主库的写命令
     if (server.masterhost && server.repl_slave_ro &&
         !(c->flags & CLIENT_MASTER) &&
         c->cmd->flags & CMD_WRITE)
@@ -2933,6 +2943,7 @@ int processCommand(client *c) {
 
     /* Loading DB? Return an error if the command has not the
      * CMD_LOADING flag. */
+    //在持久化操作，直接拒绝
     if (server.loading && !(c->cmd->flags & CMD_LOADING)) {
         addReply(c, shared.loadingerr);
         return C_OK;

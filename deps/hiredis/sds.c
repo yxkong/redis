@@ -37,7 +37,12 @@
 #include <assert.h>
 #include "sds.h"
 #include "sdsalloc.h"
-
+/**
+ * @brief 获取结构体本身的大小
+ * 
+ * @param type 
+ * @return int 
+ */
 static inline int sdsHdrSize(char type) {
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -53,7 +58,6 @@ static inline int sdsHdrSize(char type) {
     }
     return 0;
 }
-
 static inline char sdsReqType(size_t string_size) {
     if (string_size < 32)
         return SDS_TYPE_5;
@@ -78,6 +82,7 @@ static inline char sdsReqType(size_t string_size) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
+
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
@@ -87,7 +92,6 @@ sds sdsnewlen(const void *init, size_t initlen) {
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
-
     sh = s_malloc(hdrlen+initlen+1);
     if (sh == NULL) return NULL;
     if (!init)
@@ -248,7 +252,6 @@ sds sdsRemoveFreeSpace(sds s) {
     int hdrlen;
     size_t len = sdslen(s);
     sh = (char*)s-sdsHdrSize(oldtype);
-
     type = sdsReqType(len);
     hdrlen = sdsHdrSize(type);
     if (oldtype==type) {
@@ -256,6 +259,7 @@ sds sdsRemoveFreeSpace(sds s) {
         if (newsh == NULL) return NULL;
         s = (char*)newsh+hdrlen;
     } else {
+        //
         newsh = s_malloc(hdrlen+len+1);
         if (newsh == NULL) return NULL;
         memcpy((char*)newsh+hdrlen, s, len+1);
@@ -928,11 +932,12 @@ int hex_digit_to_int(char c) {
  * quotes or closed quotes followed by non space characters
  * as in: "foo"bar or "foo'
  */
+
+
 sds *sdssplitargs(const char *line, int *argc) {
-    const char *p = line;
+    const char *p = line; 
     char *current = NULL;
     char **vector = NULL;
-
     *argc = 0;
     while(1) {
         /* skip blanks */
@@ -951,14 +956,15 @@ sds *sdssplitargs(const char *line, int *argc) {
                                              is_hex_digit(*(p+3)))
                     {
                         unsigned char byte;
-
                         byte = (hex_digit_to_int(*(p+2))*16)+
                                 hex_digit_to_int(*(p+3));
+                        
                         current = sdscatlen(current,(char*)&byte,1);
                         p += 3;
+                    
                     } else if (*p == '\\' && *(p+1)) {
                         char c;
-
+                        
                         p++;
                         switch(*p) {
                         case 'n': c = '\n'; break;
@@ -968,18 +974,22 @@ sds *sdssplitargs(const char *line, int *argc) {
                         case 'a': c = '\a'; break;
                         default: c = *p; break;
                         }
+                        
                         current = sdscatlen(current,&c,1);
                     } else if (*p == '"') {
                         /* closing quote must be followed by a space or
                          * nothing at all. */
+                        
                         if (*(p+1) && !isspace(*(p+1))) goto err;
                         done=1;
                     } else if (!*p) {
+                       
                         /* unterminated quotes */
                         goto err;
                     } else {
                         current = sdscatlen(current,p,1);
                     }
+                
                 } else if (insq) {
                     if (*p == '\\' && *(p+1) == '\'') {
                         p++;
@@ -997,6 +1007,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                     }
                 } else {
                     switch(*p) {
+                   
                     case ' ':
                     case '\n':
                     case '\r':
@@ -1018,6 +1029,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                 if (*p) p++;
             }
             /* add the token to the vector */
+            
             vector = s_realloc(vector,((*argc)+1)*sizeof(char*));
             vector[*argc] = current;
             (*argc)++;

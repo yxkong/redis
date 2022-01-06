@@ -45,6 +45,16 @@
 /* Create a new slowlog entry.
  * Incrementing the ref count of all the objects retained is up to
  * this function. */
+
+/**
+ * @brief 将客户端和入参，包装成一个slowlogEntry对象
+ * 
+ * @param c 客户端
+ * @param argv 参数
+ * @param argc 参数个数
+ * @param duration 执行时间
+ * @return slowlogEntry* 
+ */
 slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long duration) {
     slowlogEntry *se = zmalloc(sizeof(*se));
     int j, slargc = argc;
@@ -120,13 +130,25 @@ void slowlogInit(void) {
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length. */
+
+/**
+ * @brief 如果有必要，将执行的客户端和参数，放入到server.slowlog
+ * @param c 
+ * @param argv 参数
+ * @param argc 参数个数
+ * @param duration 执行时间
+ */
 void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration) {
+    //禁止采样慢日志
     if (server.slowlog_log_slower_than < 0) return; /* Slowlog disabled */
+    //执行时间大于配置的时间
     if (duration >= server.slowlog_log_slower_than)
+        //采用头插法将entry放入到server.slowlog 链表里
         listAddNodeHead(server.slowlog,
                         slowlogCreateEntry(c,argv,argc,duration));
 
     /* Remove old entries if needed. */
+    //如果超过了server.slowlog_max_len 配置项，删除，尾删
     while (listLength(server.slowlog) > server.slowlog_max_len)
         listDelNode(server.slowlog,listLast(server.slowlog));
 }

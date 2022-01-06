@@ -1151,7 +1151,7 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int 
  * @param skip  步长，用于链表遍历
  * @return unsigned char* 
  */
-unsigned char *ziplistFind(unsigned char * , unsigned char *vstr, unsigned int vlen, unsigned int skip) {
+unsigned char *ziplistFind(unsigned char *p , unsigned char *vstr, unsigned int vlen, unsigned int skip) {
     int skipcnt = 0;
     unsigned char vencoding = 0;
     long long vll = 0;

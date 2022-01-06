@@ -55,7 +55,7 @@ struct __attribute__ ((__packed__)) sdshdr8 {
     uint8_t alloc; /* excluding the header and null terminator */
     // 1字节 max= 255
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
-    // 字节数组
+    // 字节数组+1结尾\0
     char buf[];
 };//4+n 长度
 struct __attribute__ ((__packed__)) sdshdr16 {
@@ -93,7 +93,7 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
 /**
- * @brief 
+ * @brief 返回字符串的实际长度，直接返回的是已用len
  * 
  * @param s 
  * @return size_t 
@@ -116,7 +116,7 @@ static inline size_t sdslen(const sds s) {
 }
 
 /**
- * @brief 返回sds有效长度
+ * @brief 返回sds的空闲长度 
  * c 语言的静态方法作用域只在本文件中
  * @param s 
  * @return size_t 
@@ -146,7 +146,12 @@ static inline size_t sdsavail(const sds s) {
     }
     return 0;
 }
-
+/**
+ * @brief 设置sds已使用长度
+ * 
+ * @param s 
+ * @param newlen 
+ */
 static inline void sdssetlen(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -213,7 +218,12 @@ static inline size_t sdsalloc(const sds s) {
     }
     return 0;
 }
-
+/**
+ * @brief 设置sds的总空间大小
+ * 
+ * @param s 
+ * @param newlen 
+ */
 static inline void sdssetalloc(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {

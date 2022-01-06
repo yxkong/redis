@@ -30,3 +30,6 @@ deps/lua/src/liblua.a
 .prerequisites
 *.dSYM
 Makefile.dep
+*.o
+*.out
+test.c

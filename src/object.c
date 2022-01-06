@@ -102,37 +102,53 @@ robj *createRawStringObject(const char *ptr, size_t len) {
 /**
  * @brief Create a Embedded String Object object
  * 好处是空间连续，可以
- * @param ptr 字符串引用
- * @param len 小于44位
+ * @param ptr 字符串指针
+ * @param len 实际字符长度 小于44位
  * @return robj* 
  */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     // 申请一个robj+sdshrd8 的连续空间
-    //16+4+len  最大64字节
+    //16+（3+1）+len  最大64字节
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+   
+    //字符串结构体开始位置,+1是因为o->type+o->encoding=1字节
+    /**
+     * 因为o是一个robj类型
+     * o+1等价于sizeof(o)+1   1表示o结构体的一个单位
+     * sizeof(o)就是robj类型的结构体大小
+     * 所以sh的指针就是在申请的内存空间里排除了robj对象的大小
+     */
     struct sdshdr8 *sh = (void*)(o+1);
-
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
+    /**
+     * 这块刚开始还有点想不明白，为什么+1？
+     * 指针是可以在知道结构体类型的情况下，指针是可以自加操作，1个单位表示结构体的大小
+     * void 指针因为不知道结构体类型，所以无法自加，也可以防止误操作
+     */
     o->ptr = sh+1;
+    //占用4字节
     o->refcount = 1;
+    //设置过期策略
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
         o->lru = LRU_CLOCK();
     }
-
+    //直接已用长度和申请长度打满，后续不让动了
     sh->len = len;
     sh->alloc = len;
     sh->flags = SDS_TYPE_8;
     if (ptr == SDS_NOINIT)
         sh->buf[len] = '\0';
     else if (ptr) {
+        //将原来的字符串拷贝过去
         memcpy(sh->buf,ptr,len);
         sh->buf[len] = '\0';
     } else {
         memset(sh->buf,0,len+1);
     }
+    serverLog(LL_WARNING, "createEmbeddedStringObject alloc size:%d",sizeof(*o));
     return o;
 }
 
@@ -157,6 +173,15 @@ robj *createStringObject(const char *ptr, size_t len) {
  * integer, because the object is going to be used as value in the Redis key
  * space (for instance when the INCR command is used), so we want LFU/LRU
  * values specific for each key. */
+
+/**
+ * @brief 创建 long类型的robj
+ *  如果在long的范围内，直接给robj->ptr 赋值
+ *  不在则创建一个long类型的sds字符串放入robj里
+ * @param value 
+ * @param valueobj 
+ * @return robj* 
+ */
 robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     robj *o;
 
@@ -463,15 +488,16 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 
 /**
  * @brief 在OBJ_ENCODING_RAW 编码的情况下
- * 如果sds的可用空间>10%的总空间，释放空间
+ * 如果sds的可用空间>10%的总空间，优化sds的空闲空间
  * 
+ * 产生这个问题是因为sds的过度分配
  * @param o 
  */
 void trimStringObjectIfNeeded(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW &&
         sdsavail(o->ptr) > sdslen(o->ptr)/10)
     {
-        //释放空间
+        //释放多余空间
         o->ptr = sdsRemoveFreeSpace(o->ptr);
     }
 }
@@ -479,8 +505,8 @@ void trimStringObjectIfNeeded(robj *o) {
 /* Try to encode a string object in order to save space */
 
 /**
- * @brief 尝试对字符串进行编码以节省空间
- * 
+ * @brief 尝试对字符串进行编码
+ * 空间优化
  * @param o 字符串
  * @return robj* 
  */
@@ -586,8 +612,7 @@ robj *tryObjectEncoding(robj *o) {
      * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
     
     /**
-     * @brief 如果前面没有编码成功，这里是一个兜底策略
-     * 正常第一次不会走这里
+     * @brief 清除多余的空闲空间
      */
 
     trimStringObjectIfNeeded(o);
@@ -878,6 +903,13 @@ size_t streamRadixTreeMemoryUsage(rax *rax) {
  * case of aggregated data types where only "sample_size" elements
  * are checked and averaged to estimate the total size. */
 #define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
+/**
+ * @brief 计算robj的大小
+ * 
+ * @param o 
+ * @param sample_size 
+ * @return size_t 
+ */
 size_t objectComputeSize(robj *o, size_t sample_size) {
     sds ele, ele2;
     dict *d;
@@ -887,10 +919,13 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
 
     if (o->type == OBJ_STRING) {
         if(o->encoding == OBJ_ENCODING_INT) {
+            //int类型，直接
             asize = sizeof(*o);
         } else if(o->encoding == OBJ_ENCODING_RAW) {
+            //申请空间的长度+结构体的长度
             asize = sdsAllocSize(o->ptr)+sizeof(*o);
         } else if(o->encoding == OBJ_ENCODING_EMBSTR) {
+            //实际字符串的使用长度+2+16，这块有点想不明白
             asize = sdslen(o->ptr)+2+sizeof(*o);
         } else {
             serverPanic("Unknown string encoding");
@@ -1434,9 +1469,15 @@ NULL
             addReply(c, shared.nullbulk);
             return;
         }
+        //计算value的长度
         size_t usage = objectComputeSize(dictGetVal(de),samples);
+        serverLog(LL_WARNING, "memoryCommand usage dictGetVal size:%d",usage);
+        //计算key的长度 
         usage += sdsAllocSize(dictGetKey(de));
+        serverLog(LL_WARNING, "memoryCommand usage dictGetVal+dictGetKey size:%d",usage);
+        //计算dictEntry的长度
         usage += sizeof(dictEntry);
+        serverLog(LL_WARNING, "memoryCommand usage dictGetVal+dictGetKey+dictEntry size:%d",usage);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();

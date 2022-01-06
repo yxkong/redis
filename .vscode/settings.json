@@ -59,6 +59,8 @@
         "unordered_map": "c",
         "vector": "c",
         "atomicvar.h": "c",
-        "pthread.h": "c"
+        "pthread.h": "c",
+        "bitset": "cpp",
+        "select.h": "c"
     }
 }

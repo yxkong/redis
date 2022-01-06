@@ -134,7 +134,7 @@ void setCommand(client *c) {
             return;
         }
     }
-
+    //尝试编码，并优化空间，针对value，
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }

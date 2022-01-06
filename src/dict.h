@@ -144,6 +144,7 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
+//获取val值
 #define dictGetVal(he) ((he)->v.val)
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
