@@ -2647,6 +2647,10 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     updateCachedTime(0);
     start = server.ustime;
+    if (c->argc>2){
+        sds sx =c->argv[2]->ptr;
+        serverLog(LL_WARNING, "call before   param:%s  type:%d",sx,sx[-1]);
+    }
     //命令执行，会执行对应的redisCommand
     c->cmd->proc(c);
     //计算执行时间
@@ -2984,6 +2988,10 @@ int processCommand(client *c) {
         addReply(c,shared.queued);
     } else {
         //执行命令回调
+        if (c->argc>2){
+            sds s =c->argv[2]->ptr;
+            serverLog(LL_WARNING, "processCommand call before  param:%s  type:%d",s,s[-1]);
+        }
         call(c,CMD_CALL_FULL);
         //
         c->woff = server.master_repl_offset;

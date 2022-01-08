@@ -266,6 +266,12 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * 3) The expire time of the key is reset (the key is made persistent).
  *
  * All the new keys in the database should be created via this interface. */
+/**
+ * 设置key
+ * @param db
+ * @param key
+ * @param val
+ */
 void setKey(redisDb *db, robj *key, robj *val) {
     // 有无key
     if (lookupKeyWrite(db,key) == NULL) {

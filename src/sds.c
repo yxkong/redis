@@ -103,7 +103,7 @@ static inline char sdsReqType(size_t string_size) {
 
 /**
  * @brief 初始化sds字符串
- * 
+ *  返回的是一个sds指针，这个指针是在对应的结构体开始指针+结构体大小
  * @param init 初始化字符串
  * @param initlen 初始化字符串的长度
  * @return sds 
@@ -115,7 +115,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
     char type = sdsReqType(initlen);
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
-    // 修正sds类型，最小为SDS_TYPE_8
+    // SDS_TYPE_5并且字符串长度为0的情况下修复为SDS_TYPE_8
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
     //计算对应sds类型结构体的size
     int hdrlen = sdsHdrSize(type);
@@ -124,11 +124,13 @@ sds sdsnewlen(const void *init, size_t initlen) {
     assert(hdrlen+initlen+1 > initlen); /* Catch size_t overflow */
     // 申请空间（结构体类型长度+字符串长度+1）
     sh = s_malloc(hdrlen+initlen+1);
+   // printf("key: %s initlen:%d  type:%d hdrlen:%d size %d \n",init,initlen,type,hdrlen,(hdrlen+initlen+1));
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;
+    //s是在申请的sh指针的地址上，加上了结构体大小
     s = (char*)sh+hdrlen;
     fp = ((unsigned char*)s)-1;
     switch(type) {
@@ -403,6 +405,7 @@ size_t sdsAllocSize(sds s) {
     //申请的空间大小
     size_t alloc = sdsalloc(s);
     //结构体大小+申请大小+1（\0）
+
     return sdsHdrSize(s[-1])+alloc+1;
 }
 

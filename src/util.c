@@ -359,11 +359,11 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
  * from the number without any loss in the string representation. */
 
 /**
- * @brief 字符串转long long 类型
+ * @brief 从字符串s的指针开始，检索slen长度的字符，然后解析到对应的数字
  * 
- * @param s 
- * @param slen 
- * @param value 
+ * @param s 字符串的起始指针
+ * @param slen  检索的长度
+ * @param value 接收检索到数字的指针
  * @return int 
  */
 int string2ll(const char *s, size_t slen, long long *value) {
@@ -377,6 +377,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
         return 0;
 
     /* Special case: first and only digit is 0. */
+    //针对第一个进行特殊处理
     if (slen == 1 && p[0] == '0') {
         if (value != NULL) *value = 0;
         return 1;
@@ -384,6 +385,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
 
     /* Handle negative numbers: just set a flag and continue like if it
      * was a positive number. Later convert into negative. */
+    //处理负数
     if (p[0] == '-') {
         negative = 1;
         p++; plen++;
@@ -394,6 +396,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
     }
 
     /* First digit should be 1-9, otherwise the string should just be 0. */
+    //第一个数字应该是1-9，否则应该是0
     if (p[0] >= '1' && p[0] <= '9') {
         v = p[0]-'0';
         p++; plen++;
@@ -402,11 +405,14 @@ int string2ll(const char *s, size_t slen, long long *value) {
     }
 
     /* Parse all the other digits, checking for overflow at every step. */
+    //解析其他的数字，p[0] p的指针一直后移，所以p[0]永远是当前的数字
     while (plen < slen && p[0] >= '0' && p[0] <= '9') {
+        //溢出，返回0
         if (v > (ULLONG_MAX / 10)) /* Overflow. */
             return 0;
+        //先乘以10进位
         v *= 10;
-
+        //再次校验溢出
         if (v > (ULLONG_MAX - (p[0]-'0'))) /* Overflow. */
             return 0;
         v += p[0]-'0';
@@ -420,6 +426,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
 
     /* Convert to negative if needed, and do the final overflow check when
      * converting from unsigned long long to long long. */
+    //将解析出来的数字赋值给value
     if (negative) {
         if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* Overflow. */
             return 0;

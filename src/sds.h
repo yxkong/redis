@@ -40,6 +40,12 @@ extern const char *SDS_NOINIT;
 #include <stdarg.h>
 #include <stdint.h>
 
+/**
+ * sds就是一个字符指针
+ *
+ * 在sdshdr5 指向的是buf的位置，flags是它的header
+ * 在sdshdr8、sdshdr16、sdshdr32、sdshdr64 都是指向的buf位置，len、alloc、flags是header
+ */
 typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
@@ -48,6 +54,16 @@ struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
 };
+/**
+ * 当用sds表示sdshdr8的时候
+ * sds指向的是buf的位置
+ * flags就是 sds[-1]的位置
+ *
+ * __attribute__ ((packed))，是为了让编译器以紧凑模式来分配内存。如果没有这个属性，编译器可能会为struct的字段做优化对齐，在其中填充空字节。
+ * 那样的话，就不能保证header和sds的数据部分紧紧前后相邻，也不能按照固定向低地址方向偏移1个字节的方式来获取flags字段了
+ *
+ *
+ */
 struct __attribute__ ((__packed__)) sdshdr8 {
     //1字节  max= 255  已用空间
     uint8_t len; /* used */ 
@@ -88,7 +104,16 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_64 4
 #define SDS_TYPE_MASK 7
 #define SDS_TYPE_BITS 3
+/**
+ *  对应结构体的起始指针
+ *  s是char的起始位置，减去结构体的大小，就是结构体的起始位置
+ */
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
+/**
+ * 获取header起始位置的指针，拿到的sds真实的实现
+ * s 是sds字符串的起始位置
+ * 减去对应结构体的大小就是起始指针的位置
+ */
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
@@ -148,7 +173,7 @@ static inline size_t sdsavail(const sds s) {
 }
 /**
  * @brief 设置sds已使用长度
- * 
+ * 通过sds的低位-1
  * @param s 
  * @param newlen 
  */

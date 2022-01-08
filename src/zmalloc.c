@@ -73,9 +73,15 @@ void zlibc_free(void *ptr) {
 #define mallocx(size,flags) je_mallocx(size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #endif
-
+/**
+ * 补齐内存
+ * 需要补齐的内存：sizeof(long)-(_n&(sizeof(long)-1))
+ * _n += sizeof(long)-(_n&(sizeof(long)-1))
+ * 最后加上要补齐的
+ * 将最后的内存增加到used_memory
+ */
 #define update_zmalloc_stat_alloc(__n) do { \
-    size_t _n = (__n); \
+    size_t _n = (__n);                      \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     atomicIncr(used_memory,__n); \
 } while(0)
@@ -97,18 +103,29 @@ static void zmalloc_default_oom(size_t size) {
 }
 
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
-
+/**
+ * 使用zmalloc 分配内存
+ * @param size
+ * @return
+ */
 void *zmalloc(size_t size) {
     ASSERT_NO_SIZE_OVERFLOW(size);
+    //分配内存
     void *ptr = malloc(size+PREFIX_SIZE);
-
+    //分配失败，基本上都是oom
     if (!ptr) zmalloc_oom_handler(size);
+//系统是否有malloc_size
 #ifdef HAVE_MALLOC_SIZE
+    //内存对齐
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
+    //返回指针位置
     return ptr;
 #else
+    //计算大小
     *((size_t*)ptr) = size;
+    //计算对齐后的内存大小
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
+    //返回指针位置
     return (char*)ptr+PREFIX_SIZE;
 #endif
 }

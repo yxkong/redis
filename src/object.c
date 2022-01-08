@@ -100,15 +100,21 @@ robj *createRawStringObject(const char *ptr, size_t len) {
  * allocated in the same chunk as the object itself. */
 
 /**
- * @brief Create a Embedded String Object object
- * 好处是空间连续，可以
+ * @brief 创建embstr字符串
+ * 好处是空间连续，只需创建一次
  * @param ptr 字符串指针
  * @param len 实际字符长度 小于44位
  * @return robj* 
  */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     // 申请一个robj+sdshrd8 的连续空间
-    //16+（3+1）+len  最大64字节
+    //16+（3+1）+len  最大64字节  44
+    /**
+     * robj 16 byte
+     * sdshdr 3 byte
+     * \0 1 byte
+     *  共20 byte
+     */
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
    
     //字符串结构体开始位置,+1是因为o->type+o->encoding=1字节
@@ -148,7 +154,6 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     } else {
         memset(sh->buf,0,len+1);
     }
-    serverLog(LL_WARNING, "createEmbeddedStringObject alloc size:%d",sizeof(*o));
     return o;
 }
 
@@ -159,6 +164,14 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  * The current limit of 44 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
+/**
+ * 创建redisObject
+ *  小于等于44字节，创建embstr字符串
+ *  大于44 创建raw类型的字符串
+ * @param ptr
+ * @param len
+ * @return
+ */
 robj *createStringObject(const char *ptr, size_t len) {
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr,len);
@@ -918,6 +931,8 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
     size_t asize = 0, elesize = 0, samples = 0;
 
     if (o->type == OBJ_STRING) {
+        sds sd = o->ptr;
+        serverLog(LL_WARNING, "objectComputeSize param:%s  type:%d",sd,sd[-1]);
         if(o->encoding == OBJ_ENCODING_INT) {
             //int类型，直接
             asize = sizeof(*o);
@@ -925,7 +940,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             //申请空间的长度+结构体的长度
             asize = sdsAllocSize(o->ptr)+sizeof(*o);
         } else if(o->encoding == OBJ_ENCODING_EMBSTR) {
-            //实际字符串的使用长度+2+16，这块有点想不明白
+            //实际字符串的使用长度+2+16，这块有点想不明白,一个sdshdr8，只加了2
             asize = sdslen(o->ptr)+2+sizeof(*o);
         } else {
             serverPanic("Unknown string encoding");
@@ -1471,13 +1486,15 @@ NULL
         }
         //计算value的长度
         size_t usage = objectComputeSize(dictGetVal(de),samples);
-        serverLog(LL_WARNING, "memoryCommand usage dictGetVal size:%d",usage);
-        //计算key的长度 
+//        serverLog(LL_WARNING, "memoryCommand usage dictGetVal size:%d",usage);
+        //计算key的长度
+//        sds sd = dictGetKey(de);
+//        serverLog(LL_WARNING, "memoryCommand key:%s  type:%d",sd,sd[-1]);
         usage += sdsAllocSize(dictGetKey(de));
-        serverLog(LL_WARNING, "memoryCommand usage dictGetVal+dictGetKey size:%d",usage);
+//        serverLog(LL_WARNING, "memoryCommand usage dictGetVal+dictGetKey size:%d",usage);
         //计算dictEntry的长度
         usage += sizeof(dictEntry);
-        serverLog(LL_WARNING, "memoryCommand usage dictGetVal+dictGetKey+dictEntry size:%d",usage);
+//        serverLog(LL_WARNING, "memoryCommand usage dictGetVal+dictGetKey+dictEntry size:%d",usage);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();

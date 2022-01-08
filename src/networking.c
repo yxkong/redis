@@ -1441,8 +1441,7 @@ static void setProtocolError(const char *errstr, client *c) {
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
 
 /**
- * @brief 多任务处理
- * 
+ * @brief  处理查询缓冲区，主要解析过程
  * @param c 
  * @return int 
  */
@@ -1450,12 +1449,18 @@ int processMultibulkBuffer(client *c) {
     char *newline = NULL;
     int ok;
     long long ll;
-
+    //第一次进来都为0，这个时候解析参数长度
     if (c->multibulklen == 0) {
         /* The client should have been reset */
         serverAssertWithInfo(c,NULL,c->argc == 0);
 
         /* Multi bulk length cannot be read without a \r\n */
+        //有\r\n才能进行 mult bulk解析
+        /**
+         *  处理  *3\r\n$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
+         *  newline就是\r 第一次出现的内存位置\r\n$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
+         *  第一次newline 就是
+         */
         newline = strchr(c->querybuf+c->qb_pos,'\r');
         if (newline == NULL) {
             if (sdslen(c->querybuf)-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
@@ -1466,12 +1471,27 @@ int processMultibulkBuffer(client *c) {
         }
 
         /* Buffer should also contain \n */
+        /**
+         * newline的位置减c->querybuf+c->qb_pos 的位置，高位置减低位置，这个时候为2(因为newline从\r开始)
+         * sdslen(c->querybuf) 为整体长度
+         * c->qb_pos  当前已挪移的位置 目前为0，后续会一直偏移 最后减去2，相当于把\r\n减掉
+         * 如果最后只剩下\r\n的时候，铁定报错
+         */
         if (newline-(c->querybuf+c->qb_pos) > (ssize_t)(sdslen(c->querybuf)-c->qb_pos-2))
             return C_ERR;
 
         /* We know for sure there is a whole line since newline != NULL,
          * so go ahead and find out the multi bulk length. */
         serverAssertWithInfo(c,NULL,c->querybuf[c->qb_pos] == '*');
+        //解析* 之后的述职，表示这个是一个bulk的数量
+        /**
+         * *3\r\n$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
+         *   c->querybuf+1+c->qb_pos  +1是为了把*过滤掉
+         *   newline-(c->querybuf+1+c->qb_pos) =1
+         *    newline 为  \r\n$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
+         *    c->querybuf+1+c->qb_pos  是从3开始，所以 两个位置相减就是1
+         *    解析出来3
+         */
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > 1024*1024) {
             addReplyError(c,"Protocol error: invalid multibulk length");
@@ -1482,22 +1502,33 @@ int processMultibulkBuffer(client *c) {
             setProtocolError("unauth mbulk count", c);
             return C_ERR;
         }
-
+        /**
+         *  +2 表示把\r\n排除，相当于指针后移
+         */
         c->qb_pos = (newline-c->querybuf)+2;
 
         if (ll <= 0) return C_OK;
-
+        //解析出来的参数长度
         c->multibulklen = ll;
 
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
+        //这个时候赋值参数长度
         c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
+    //根据参数长度解析参数
     while(c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
+            /**
+             * c->querybuf 为 *3\r\n$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
+             * 第一次进来
+             * 这个时候c->qb_pos 为4
+             * 从c->querybuf 指针+4的位置检索\r 也就是从$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n里检索
+             * 得到 newline 为\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
+             */
             newline = strchr(c->querybuf+c->qb_pos,'\r');
             if (newline == NULL) {
                 if (sdslen(c->querybuf)-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
@@ -1510,9 +1541,12 @@ int processMultibulkBuffer(client *c) {
             }
 
             /* Buffer should also contain \n */
+            //如果只包含\r\n,就直接中断
             if (newline-(c->querybuf+c->qb_pos) > (ssize_t)(sdslen(c->querybuf)-c->qb_pos-2))
                 break;
-
+            /**
+             * redis中使用$+数字标识一个字段的长度
+             */
             if (c->querybuf[c->qb_pos] != '$') {
                 addReplyErrorFormat(c,
                     "Protocol error: expected '$', got '%c'",
@@ -1521,7 +1555,14 @@ int processMultibulkBuffer(client *c) {
                 return C_ERR;
             }
 
+            /**
+             *  从指定偏移位置+1的地方开始解析，解析到下个\r的长度
+             *  第一次
+             *  newline = \r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
+             *  将解析出来的数字放入ll
+             */
             ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
+            //解析的长度>512mb，就直接异常
             if (!ok || ll < 0 || ll > server.proto_max_bulk_len) {
                 addReplyError(c,"Protocol error: invalid bulk length");
                 setProtocolError("invalid bulk length",c);
@@ -1531,8 +1572,11 @@ int processMultibulkBuffer(client *c) {
                 setProtocolError("unauth bulk length", c);
                 return C_ERR;
             }
-
+            /**
+             * 第一次相当于 *3\r\n$3\r\n 长度8
+             */
             c->qb_pos = newline-c->querybuf+2;
+            //超过32kb就算大对象了
             if (ll >= PROTO_MBULK_BIG_ARG) {
                 /* If we are going to read a large object from network
                  * try to make it likely that it will start at c->querybuf
@@ -1551,6 +1595,7 @@ int processMultibulkBuffer(client *c) {
                     c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2);
                 }
             }
+            //解析出这个参数的长度
             c->bulklen = ll;
         }
 
@@ -1562,6 +1607,7 @@ int processMultibulkBuffer(client *c) {
             /* Optimization: if the buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
+            //缓冲区只包含bulk元素，并且是大对象，特殊处理
             if (c->qb_pos == 0 &&
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
@@ -1573,8 +1619,19 @@ int processMultibulkBuffer(client *c) {
                 c->querybuf = sdsnewlen(SDS_NOINIT,c->bulklen+2);
                 sdsclear(c->querybuf);
             } else {
-                c->argv[c->argc++] =
-                    createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                /**
+                 * 1,从缓冲区里的指定位置开始，获取多长数据
+                 *   这时c->qb_pos为8，相当于从*3\r\n$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n 第8个位置，获取3位
+                 */
+//                c->argv[c->argc++]=createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                robj *ro = createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                c->argv[c->argc++] = ro;
+                //添加日志
+                if (sdsEncodedObject(ro)){
+                    sds s = ro->ptr;
+                    serverLog(LL_WARNING, "processMultibulkBuffer param:%s  type:%d",s,s[-1]);
+                }
+
                 c->qb_pos += c->bulklen+2;
             }
             c->bulklen = -1;
@@ -1595,7 +1652,8 @@ int processMultibulkBuffer(client *c) {
  * pending query buffer, already representing a full command, to process. */
 
 /**
- * @brief 处理输入内容
+ * @brief 需要从客户端读取更多的内容，
+ * 这个一般是阻塞被重新激活，需要读取完整的命令
  * 
  * @param c 
  */
@@ -1629,10 +1687,22 @@ void processInputBuffer(client *c) {
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
         /* Determine request type when unknown. */
-        //推断请求类型 是单行还是多行
+        // 推断请求类型 是单行还是多行，传递过来就变成了多行格式
         if (!c->reqtype) {
             //因为qb_pos初始值是0，以*开头的，为PROTO_REQ_MULTIBULK；否则为PROTO_REQ_INLINE
+            /**
+             *  一个set 5ycode yxkong 被解析成如下格式
+             *   *3\r\n$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
+             *   3
+             *   $3
+             *   set
+             *   $6
+             *   5ycode
+             *   $6
+             *   yxkong
+             */
             if (c->querybuf[c->qb_pos] == '*') {
+                //单机版断点进来走的这里
                 c->reqtype = PROTO_REQ_MULTIBULK;
             } else {
                 c->reqtype = PROTO_REQ_INLINE;
@@ -1645,6 +1715,7 @@ void processInputBuffer(client *c) {
             //单行任务理逻辑，单行，直接读取一行
             if (processInlineBuffer(c) != C_OK) break;
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
+            //单机断点走的这里
             if (processMultibulkBuffer(c) != C_OK) break;
         } else {
             serverPanic("Unknown request type");
@@ -1692,7 +1763,7 @@ void processInputBuffer(client *c) {
  * is flagged as master. Usually you want to call this instead of the
  * raw processInputBuffer(). */
 void processInputBufferAndReplicate(client *c) {
-    //非master节点
+    //非master节点,单机走这里
     if (!(c->flags & CLIENT_MASTER)) {
         //处理输入缓冲区
         processInputBuffer(c);

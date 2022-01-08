@@ -1417,6 +1417,9 @@ struct redisServer {
      * 计数衰减默认只为1
      */
     int lfu_decay_time;             /* LFU counter decay factor. */
+    /**
+     * 默认512mb
+     */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     /* Blocked clients */
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/

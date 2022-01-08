@@ -17,6 +17,21 @@ typedef struct redisObject {
     int refcount; //4字节
     void *ptr; // 8字节
 } robj;//一个robj 16直接
+unsigned int dictGetSomeKeys(dictEntry **des) {
+    // printf("%d \r\n",**des);
+    for (size_t i = 0; i < 2; i++)
+    {
+         dictEntry *entry;
+        entry->key = "a";
+        entry->val = "123";
+        *des = entry; 
+        des++;
+    }
+    
+    // printf("*des %s \r\n",*des);
+    // printf("des %s \r\n",des);
+    return 1;
+}
 
 int main()
 {
@@ -42,12 +57,23 @@ int main()
     // printf("x size :%d \n",length);
     // length = sizeof( (void*)x);
     //  printf("x1 size :%d \n",length);
-    static int timelimit_exit = 0; 
-    if (timelimit_exit) printf("0");
-    if (!timelimit_exit) printf("!0\n");
-    timelimit_exit=1;
-    if (timelimit_exit) printf("1\n");
-    if (!timelimit_exit) printf("!1\n");
-    
+     //默认5
+    dictEntry *samples[5];
+
+    char s1[] ="https://www.5ycode.com/";
+    char t1[] ="5ycode";
+    int curlen1 = strlen(s1);
+    int len1=6;
+    printf("memcpy before s1 :%s  t1:%s \n",s1,t1);
+    memcpy(s1, t1, len1);
+    printf("memcpy after s1:%s t1:%s \n",s1,t1);
+
+    char s2[] ="https://www.5ycode.com/";
+    char t2[] ="5ycode";
+    int curlen2 = strlen(s2);
+    int len2=6;
+    printf("memmove before s2:%s t2:%s \n",s2,t2);
+    memmove(s2, t2, len2);
+    printf("memmove after s2:%s t2:%s \n",s2,t2);
     return 0;
 }
