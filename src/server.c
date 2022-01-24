@@ -1431,6 +1431,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Run the Sentinel timer if we are in sentinel mode. */
+    //哨兵模式执行
     if (server.sentinel_mode) sentinelTimer();
 
     /* Cleanup expired MIGRATE cached sockets. */
@@ -2369,6 +2370,9 @@ void initServer(void) {
  * Specifically, creation of threads due to a race bug in ld.so, in which
  * Thread Local Storage initialization collides with dlopen call.
  * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
+/**
+ * 初始化server的后台任务
+ */
 void InitServerLast() {
     bioInit();
     server.initial_memory_usage = zmalloc_used_memory();
@@ -4270,6 +4274,14 @@ void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
  * argv[0] contains "redis-sentinel". */
+/**
+ * 根据启动命令判断是否哨兵
+ * redis-sentinel sentinel.conf
+ * redis-server sentinel.conf --sentinel
+ * @param argc
+ * @param argv
+ * @return
+ */
 int checkForSentinelMode(int argc, char **argv) {
     int j;
 
@@ -4477,7 +4489,7 @@ int main(int argc, char **argv) {
 #endif
     setlocale(LC_COLLATE,"");
     tzset(); /* Populates 'timezone' global. */
-    //申请空间oom后的处理器
+    //设置oom后的处理器
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
@@ -4502,9 +4514,11 @@ int main(int argc, char **argv) {
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
+    //哨兵模式的情况
     if (server.sentinel_mode) {
         //初始化哨兵配置
         initSentinelConfig();
+        //初始化哨兵命令和哨兵配置
         initSentinel();
     }
 

@@ -109,7 +109,11 @@ extern "C" {
 #endif
 
 /* This is the reply object returned by redisCommand() */
+/**
+ * redis响应结构体
+ */
 typedef struct redisReply {
+    //响应类型
     int type; /* REDIS_REPLY_* */
     long long integer; /* The integer when type is REDIS_REPLY_INTEGER */
     size_t len; /* Length of string */

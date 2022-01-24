@@ -361,7 +361,7 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
  * @param obj robj
  */
 void addReply(client *c, robj *obj) {
-    //准备想客户端写入，做了一些条件判断
+    //准备向客户端写入，做了一些条件判断
     if (prepareClientToWrite(c) != C_OK) return;
     //如果回复的内容是sds编码
     if (sdsEncodedObject(obj)) {

@@ -37,6 +37,11 @@
  *
  * The function returns -1 if the input contains characters not mapping to
  * any class. */
+/**
+ * 通知事件，事件类型映射
+ * @param classes
+ * @return
+ */
 int keyspaceEventsStringToFlags(char *classes) {
     char *p = classes;
     int c, flags = 0;
@@ -65,6 +70,11 @@ int keyspaceEventsStringToFlags(char *classes) {
  * as input an integer with the xored flags and returns a string representing
  * the selected classes. The string returned is an sds string that needs to
  * be released with sdsfree(). */
+/**
+ * 将事件类型标识转为sds字符串
+ * @param flags
+ * @return
+ */
 sds keyspaceEventsFlagsToString(int flags) {
     sds res;
 
@@ -94,6 +104,13 @@ sds keyspaceEventsFlagsToString(int flags) {
  * 'event' is a C string representing the event name.
  * 'key' is a Redis object representing the key name.
  * 'dbid' is the database ID where the key lives.  */
+/**
+ * 相当于生产者，生产指定类型的事件
+ * @param type 事件类型
+ * @param event 事件名称
+ * @param key 对应的key
+ * @param dbid 所在数据库的id
+ */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     sds chan;
     robj *chanobj, *eventobj;
@@ -104,14 +121,23 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
      * This bypasses the notifications configuration, but the module engine
      * will only call event subscribers if the event type matches the types
      * they are interested in. */
+    //将事件通知给感兴趣的模块
      moduleNotifyKeyspaceEvent(type, event, key, dbid);
     
     /* If notifications for this class of events are off, return ASAP. */
+    //事件通知关闭，不往下走
     if (!(server.notify_keyspace_events & type)) return;
 
     eventobj = createStringObject(event,strlen(event));
+    /**
+     * NOTIFY_KEYSPACE  键空间通知  对应key执行了哪些操作
+     *    PUBLISH __keyspace@0__:key del
+     * NOTIFY_KEYEVENT 键事件通知  对应key执行的动作
+     *    PUBLISH __keyevent@0__:del key
+     */
 
     /* __keyspace@<db>__:<key> <event> notifications. */
+    //拼装指定格式的事件，key空间事件通知
     if (server.notify_keyspace_events & NOTIFY_KEYSPACE) {
         chan = sdsnewlen("__keyspace@",11);
         len = ll2string(buf,sizeof(buf),dbid);

@@ -222,6 +222,12 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
 }
 
 /* Publish a message */
+/**
+ * 发布广播消息
+ * @param channel
+ * @param message
+ * @return
+ */
 int pubsubPublishMessage(robj *channel, robj *message) {
     int receivers = 0;
     dictEntry *de;
@@ -229,6 +235,9 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     listIter li;
 
     /* Send to clients listening for that channel */
+    /**
+     * 获取所有的订阅客户端，并回复消息
+     */
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
         list *list = dictGetVal(de);

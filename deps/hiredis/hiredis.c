@@ -207,7 +207,13 @@ static uint32_t countDigits(uint64_t v) {
 static size_t bulklen(size_t len) {
     return 1+countDigits(len)+2+len+2;
 }
-
+/**
+ * 格式化执行命令
+ * @param target 格式化后的内容
+ * @param format 格式化模板
+ * @param ap 可变参数
+ * @return
+ */
 int redisvFormatCommand(char **target, const char *format, va_list ap) {
     const char *c = format;
     char *cmd = NULL; /* final command */
@@ -230,6 +236,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
         return -1;
 
     while(*c != '\0') {
+        //解析占位符，解析出来就是类型
         if (*c != '%' || c[1] == '\0') {
             if (*c == ' ') {
                 if (touched) {
@@ -256,7 +263,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
 
             /* Set newarg so it can be checked even if it is not touched. */
             newarg = curarg;
-
+            //根据占位符的类型，从可变参数ap 中获取内容
             switch(c[1]) {
             case 's':
                 arg = va_arg(ap,char*);
@@ -904,6 +911,13 @@ int redisGetReply(redisContext *c, void **reply) {
  * Write a formatted command to the output buffer. When this family
  * is used, you need to call redisGetReply yourself to retrieve
  * the reply (or replies in pub/sub).
+ */
+/**
+ * 填充命令
+ * @param c
+ * @param cmd
+ * @param len
+ * @return
  */
 int __redisAppendCommand(redisContext *c, const char *cmd, size_t len) {
     sds newbuf;

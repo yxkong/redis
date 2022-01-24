@@ -1173,6 +1173,7 @@ struct redisServer {
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
+    //从库链表  monitor链表
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     //正在执行的命令属于哪个客户端
     client *current_client;     /* Current client executing the command. */
@@ -1335,8 +1336,11 @@ struct redisServer {
     //master当前的offset
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
+    //最后选择的复制从库？
     int slaveseldb;                 /* Last SELECTed DB in replication output */
+    //master ping 从库的时间周期
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
+    //复制缓冲区
     char *repl_backlog;             /* Replication backlog for partial syncs */
     long long repl_backlog_size;    /* Backlog circular buffer size */
     long long repl_backlog_histlen; /* Backlog actual data length */
@@ -1452,6 +1456,7 @@ struct redisServer {
     mstime_t mstime;            /* 'unixtime' in milliseconds. */
     ustime_t ustime;            /* 'unixtime' in microseconds. */
     /* Pubsub */
+    /**订阅客户端*/
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
     list *pubsub_patterns;  /* A list of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
@@ -2065,7 +2070,9 @@ robj *objectCommandLookup(client *c, robj *key);
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
 void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
                        long long lru_clock);
+//更改key的最后访问时间
 #define LOOKUP_NONE 0
+//不更改key的最后访问时间
 #define LOOKUP_NOTOUCH (1<<0)
 void dbAdd(redisDb *db, robj *key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);

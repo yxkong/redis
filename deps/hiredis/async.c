@@ -513,6 +513,10 @@ static int __redisAsyncHandleConnect(redisAsyncContext *ac) {
 /* This function should be called when the socket is readable.
  * It processes all replies that can be read and executes their callbacks.
  */
+/**
+ * redis 异步处理读时间
+ * @param ac
+ */
 void redisAsyncHandleRead(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
 
@@ -580,6 +584,17 @@ static const char *nextArgument(const char *start, const char **str, size_t *len
 /* Helper function for the redisAsyncCommand* family of functions. Writes a
  * formatted command to the output buffer and registers the provided callback
  * function with the context. */
+/**
+ * 执行命令
+ *  先将普通命令和订阅命令的回调分别添加到ac->sub.patterns 和&ac->replies
+ *  然后执行命令
+ * @param ac
+ * @param fn
+ * @param privdata
+ * @param cmd
+ * @param len
+ * @return
+ */
 static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *cmd, size_t len) {
     redisContext *c = &(ac->c);
     redisCallback cb;
@@ -638,7 +653,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
         else
             __redisPushCallback(&ac->replies,&cb);
     }
-
+   //填充命令
     __redisAppendCommand(c,cmd,len);
 
     /* Always schedule a write when the write buffer is non-empty */
@@ -661,12 +676,26 @@ int redisvAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdat
     free(cmd);
     return status;
 }
-
+/**
+ * 执行异步命令
+ * @param ac
+ * @param fn 回调函数
+ * @param privdata
+ * @param format
+ * @param ...
+ * @return
+ */
 int redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *format, ...) {
     va_list ap;
     int status;
+    /**
+     * 这个函数会把format 以后的参数都装进来，放入到ap里
+     */
     va_start(ap,format);
     status = redisvAsyncCommand(ac,fn,privdata,format,ap);
+    /**
+     *
+     */
     va_end(ap);
     return status;
 }

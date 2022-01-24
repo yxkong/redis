@@ -659,7 +659,19 @@ error:
 /* Format an IP,port pair into something easy to parse. If IP is IPv6
  * (matches for ":"), the ip is surrounded by []. IP and port are just
  * separated by colons. This the standard to display addresses within Redis. */
+/**
+ *  格式化ip和端口
+ * @param buf 目标字符串
+ * @param buf_len 拷贝字字符大小
+ * @param ip ip
+ * @param port 端口
+ * @return
+ */
 int anetFormatAddr(char *buf, size_t buf_len, char *ip, int port) {
+    /**
+     * strchr 包含 ： 是ipv6
+     *
+     */
     return snprintf(buf,buf_len, strchr(ip,':') ?
            "[%s]:%d" : "%s:%d", ip, port);
 }

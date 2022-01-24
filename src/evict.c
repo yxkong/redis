@@ -442,8 +442,7 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
 
 /**
  * @brief 更新LRU的后8位，也就是LFU的counter
- * LFU 使用近似计数法，counter越大
- * 
+ * LFU 使用近似计数法，counter越大，使用了对数的思想
  * @param counter 
  * @return uint8_t 
  */

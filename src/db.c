@@ -37,7 +37,12 @@
 /*-----------------------------------------------------------------------------
  * C-level DB API
  *----------------------------------------------------------------------------*/
-
+/**
+ * key是否过期  api
+ * @param db
+ * @param key
+ * @return
+ */
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
@@ -50,9 +55,14 @@ int keyIsExpired(redisDb *db, robj *key);
  * @param val 
  */
 void updateLFU(robj *val) {
+    //获取counter，用了计数衰减的
     unsigned long counter = LFUDecrAndReturn(val);
     //
     counter = LFULogIncr(counter);
+    /**
+     * 获取分钟级的时间，左移8位（占高16位）
+     * 低8位couter占用
+     */
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
 }
 
@@ -63,20 +73,25 @@ void updateLFU(robj *val) {
 /**
  * @brief 根据key 从全局hash表中查询
  * 
- * @param db 
+ * @param db 指定db，根据db的索引获取
  * @param key key的robj对象
- * @param flags 
+ * @param flags 掩码
  * @return robj* 
  */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
-
+    //获取key val的entry对象
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
+        //获取存储的val值
         robj *val = dictGetVal(de);
 
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
+        /**
+         * 更新访问时间
+         * 没有持久化，并且更改key的最后访问时间的时候触发
+         */
         if (server.rdb_child_pid == -1 &&
             server.aof_child_pid == -1 &&
             !(flags & LOOKUP_NOTOUCH))
@@ -118,10 +133,10 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * expiring our key via DELs in the replication link. */
 
 /**
- * @brief 
+ * @brief 读取key的值
  * 
- * @param db 
- * @param key 
+ * @param db 对应的db
+ * @param key redis的key
  * @param flags 是否更改key的最后访问时间
  *  0或者LOOKUP_NONE  
  *  LOOKUP_NOTOUCH 不更改key的最后访问时间
@@ -294,21 +309,30 @@ int dbExists(redisDb *db, robj *key) {
  * If there are no keys, NULL is returned.
  *
  * The function makes sure to return keys not already expired. */
+/**
+ * 随机返回一个key，确保该key没有过期
+ * @param db 指定db
+ * @return
+ */
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
     int maxtries = 100;
+    //key是否全部设置了过期策略
     int allvolatile = dictSize(db->dict) == dictSize(db->expires);
 
     while(1) {
         sds key;
         robj *keyobj;
-
+        //随机抽取entry,是一个链表
         de = dictGetRandomKey(db->dict);
         if (de == NULL) return NULL;
-
+        //获取key
         key = dictGetKey(de);
+        //将sds 类型的key组装成robj
         keyobj = createStringObject(key,sdslen(key));
+        //在过期集合中存在
         if (dictFind(db->expires,key)) {
+            //如果key都设置了过期时间，并且是主节点，尝试了100次，就返回
             if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
@@ -320,11 +344,13 @@ robj *dbRandomKey(redisDb *db) {
                  * return a key name that may be already expired. */
                 return keyobj;
             }
+            //尝试过期（可能已经过期了，还未触发删除）
             if (expireIfNeeded(db,keyobj)) {
                 decrRefCount(keyobj);
                 continue; /* search for another key. This expired. */
             }
         }
+        //不在过期集合里，直接返回
         return keyobj;
     }
 }
@@ -351,6 +377,12 @@ int dbSyncDelete(redisDb *db, robj *key) {
 
 /* This is a wrapper whose behavior depends on the Redis lazy free
  * configuration. Deletes the key synchronously or asynchronously. */
+/**
+ * 删除key，根据配置决定是异步删除还是同步删除
+ * @param db
+ * @param key
+ * @return
+ */
 int dbDelete(redisDb *db, robj *key) {
     return server.lazyfree_lazy_server_del ? dbAsyncDelete(db,key) :
                                              dbSyncDelete(db,key);
@@ -408,32 +440,45 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * On success the fuction returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
+/**
+ * 清空db
+ * @param dbnum  可以指定db清空，也可以全清，-1全清
+ * @param flags
+ * @param callback
+ * @return
+ */
 long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
+    //是否异步清空
     int async = (flags & EMPTYDB_ASYNC);
     long long removed = 0;
-
+    //db有效性校验
     if (dbnum < -1 || dbnum >= server.dbnum) {
         errno = EINVAL;
         return -1;
     }
 
     int startdb, enddb;
+    //为-1的时候，全清
     if (dbnum == -1) {
         startdb = 0;
         enddb = server.dbnum-1;
     } else {
+        //为具体的数字，只清对应的db
         startdb = enddb = dbnum;
     }
 
     for (int j = startdb; j <= enddb; j++) {
         removed += dictSize(server.db[j].dict);
         if (async) {
+            //异步清
             emptyDbAsync(&server.db[j]);
         } else {
+            //同步清
             dictEmpty(server.db[j].dict,callback);
             dictEmpty(server.db[j].expires,callback);
         }
     }
+    //集群模式
     if (server.cluster_enabled) {
         if (async) {
             slotToKeyFlushAsync();
@@ -444,7 +489,12 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     if (dbnum == -1) flushSlaveKeysWithExpireList();
     return removed;
 }
-
+/**
+ * 选择数据库
+ * @param c
+ * @param id
+ * @return
+ */
 int selectDb(client *c, int id) {
     if (id < 0 || id >= server.dbnum)
         return C_ERR;
@@ -460,8 +510,13 @@ int selectDb(client *c, int id) {
  *
  * Every time a DB is flushed the function signalFlushDb() is called.
  *----------------------------------------------------------------------------*/
-
+/**
+ * key 有变动时，该函数被回调
+ * @param db
+ * @param key
+ */
 void signalModifiedKey(redisDb *db, robj *key) {
+    //触发监控对应的key
     touchWatchedKey(db,key);
 }
 
@@ -481,6 +536,12 @@ void signalFlushedDb(int dbid) {
  *
  * On success C_OK is returned and the flags are stored in *flags, otherwise
  * C_ERR is returned and the function sends an error to the client. */
+/**
+ * 获取命令FLUSHALL和FLUSHDB调用函数emptyDb所使用的标志
+ * @param c
+ * @param flags 将标识放入该指针
+ * @return
+ */
 int getFlushCommandFlags(client *c, int *flags) {
     /* Parse the optional ASYNC option. */
     if (c->argc > 1) {
@@ -498,6 +559,10 @@ int getFlushCommandFlags(client *c, int *flags) {
 /* FLUSHDB [ASYNC]
  *
  * Flushes the currently SELECTed Redis DB. */
+/**
+ * flushdb 命令
+ * @param c
+ */
 void flushdbCommand(client *c) {
     int flags;
 
@@ -510,6 +575,10 @@ void flushdbCommand(client *c) {
 /* FLUSHALL [ASYNC]
  *
  * Flushes the whole server data set. */
+/**
+ * flushall 命令
+ * @param c
+ */
 void flushallCommand(client *c) {
     int flags;
 
@@ -534,14 +603,21 @@ void flushallCommand(client *c) {
 }
 
 /* This command implements DEL and LAZYDEL. */
+/**
+ * 删除通用命令，实现了del和lazydel
+ * @param c
+ * @param lazy 是否延迟删除
+ */
 void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
+        //确认建是否过期
         expireIfNeeded(c->db,c->argv[j]);
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
+            //发出修改key的信号
             signalModifiedKey(c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "del",c->argv[j],c->db->id);

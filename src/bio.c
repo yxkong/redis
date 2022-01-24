@@ -191,9 +191,9 @@ void bioInit(void) {
  */
 
 /**
- * @brief 创建后台任务
+ * @brief 创建后台任务，在流程中生成的任务都会扔到这里，然后放入对应的队列中
  * 
- * @param type 
+ * @param type 任务类型
  * @param arg1 
  * @param arg2 
  * @param arg3 
@@ -298,9 +298,10 @@ void *bioProcessBackgroundJobs(void *arg) {
                 //将val和robj解绑，并释放
                 lazyfreeFreeObjectFromBioThread(job->arg1);
             else if (job->arg2 && job->arg3)
-                //回收
+                //回收db
                 lazyfreeFreeDatabaseFromBioThread(job->arg2,job->arg3);
             else if (job->arg3)
+                //同步从库删除
                 lazyfreeFreeSlotsMapFromBioThread(job->arg3);
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");

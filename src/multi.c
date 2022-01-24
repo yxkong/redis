@@ -301,6 +301,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
 
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
+    //采用头插法，插入db->watched_keys
     listRewind(clients,&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);

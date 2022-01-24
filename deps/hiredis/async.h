@@ -90,9 +90,15 @@ typedef struct redisAsyncContext {
     redisConnectCallback *onConnect;
 
     /* Regular command callbacks */
+    /**
+     * 常规命令回调链表
+     */
     redisCallbackList replies;
 
     /* Subscription callbacks */
+    /**
+     * 订阅回调链表
+     */
     struct {
         redisCallbackList invalid;
         struct dict *channels;
