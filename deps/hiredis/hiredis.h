@@ -146,6 +146,7 @@ typedef struct redisContext {
     char errstr[128]; /* String representation of error when applicable */
     int fd;
     int flags;
+    //客户端写缓冲区
     char *obuf; /* Write buffer */
     redisReader *reader; /* Protocol reader */
 

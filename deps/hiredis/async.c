@@ -589,10 +589,10 @@ static const char *nextArgument(const char *start, const char **str, size_t *len
  *  先将普通命令和订阅命令的回调分别添加到ac->sub.patterns 和&ac->replies
  *  然后执行命令
  * @param ac
- * @param fn
+ * @param fn 回调函数
  * @param privdata
- * @param cmd
- * @param len
+ * @param cmd 格式化的命令
+ * @param len 命令长度
  * @return
  */
 static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *cmd, size_t len) {
@@ -606,6 +606,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
     int ret;
 
     /* Don't accept new commands when the connection is about to be closed. */
+    //已断开或释放，就直接返回
     if (c->flags & (REDIS_DISCONNECTING | REDIS_FREEING)) return REDIS_ERR;
 
     /* Setup callback */
@@ -661,11 +662,20 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
 
     return REDIS_OK;
 }
-
+/**
+ *
+ * @param ac 异步执行上下文
+ * @param fn 回调函数
+ * @param privdata 数据
+ * @param format
+ * @param ap 可变参数列表
+ * @return
+ */
 int redisvAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *format, va_list ap) {
     char *cmd;
     int len;
     int status;
+    //格式化执行命令
     len = redisvFormatCommand(&cmd,format,ap);
 
     /* We don't want to pass -1 or -2 to future functions as a length. */
@@ -686,6 +696,7 @@ int redisvAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdat
  * @return
  */
 int redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *format, ...) {
+    //可变参数接收对象
     va_list ap;
     int status;
     /**
@@ -693,9 +704,6 @@ int redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata
      */
     va_start(ap,format);
     status = redisvAsyncCommand(ac,fn,privdata,format,ap);
-    /**
-     *
-     */
     va_end(ap);
     return status;
 }
