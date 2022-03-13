@@ -4259,6 +4259,10 @@ void setupSignalHandlers(void) {
  * of the parent process, e.g. fd(socket or flock) etc.
  * should close the resources not used by the child process, so that if the
  * parent restarts it can bind/lock despite the child possibly still running. */
+/**
+ * fork 以后，子进程会继承父进程的所有资源，如：socket 请求的fd等
+ * 子进程应当把不使用的资源进行关闭，防止父进程重启，子进程锁住资源导致父进程无法操作
+ */
 void closeClildUnusedResourceAfterFork() {
     closeListeningSockets(0);
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
@@ -4334,7 +4338,10 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
         allocation_size);
     serverPanic("Redis aborting for OUT OF MEMORY");
 }
-
+/**
+ * 设置处理的title
+ * @param title
+ */
 void redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
     char *server_mode = "";

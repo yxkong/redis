@@ -1070,17 +1070,29 @@ ssize_t rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
 }
 
 /* Save a few default AUX fields with information about the RDB generated. */
+/**
+ * 保存一些默认的字段到rdb文件中
+ * @param rdb
+ * @param flags
+ * @param rsi
+ * @return
+ */
 int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
     int redis_bits = (sizeof(void*) == 8) ? 64 : 32;
     int aof_preamble = (flags & RDB_SAVE_AOF_PREAMBLE) != 0;
 
     /* Add a few fields about the state when the RDB was created. */
+    /**
+     * 包括：生成rdb文件的redis版本，64位？还是32位？
+     * 创建时间，内存使用
+     */
     if (rdbSaveAuxFieldStrStr(rdb,"redis-ver",REDIS_VERSION) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"redis-bits",redis_bits) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"ctime",time(NULL)) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"used-mem",zmalloc_used_memory()) == -1) return -1;
 
     /* Handle saving options that generate aux fields. */
+    //主从复制的一些信息
     if (rsi) {
         if (rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db)
             == -1) return -1;
@@ -1089,6 +1101,7 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
         if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
             == -1) return -1;
     }
+    //aof
     if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
     return 1;
 }
@@ -1153,24 +1166,34 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
+    //前9个字节为rdb的魔数，用于标识rdb的情况，恢复的时候，能不能用，可以根据这个判断，java是0xCAFEBABE
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
+    // 写入一些别的信息
     if (rdbSaveInfoAuxFields(rdb,flags,rsi) == -1) goto werr;
+    //用了哪些模块也写入进来了
     if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
-
+    //遍历所有的db，写入
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
+        //当前db的全局hash表
         dict *d = db->dict;
         if (dictSize(d) == 0) continue;
+        //获取hash表的迭代器
         di = dictGetSafeIterator(d);
 
         /* Write the SELECT DB opcode */
+        //写入db的操作码 254 ，一个字节
         if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
+        //保存编码信息
         if (rdbSaveLen(rdb,j) == -1) goto werr;
 
         /* Write the RESIZE DB opcode. We trim the size to UINT32_MAX, which
          * is currently the largest type we are able to represent in RDB sizes.
          * However this does not limit the actual size of the DB to load since
          * these sizes are just hints to resize the hash tables. */
+        /**
+         * 写入db和expires的大小
+         */
         uint64_t db_size, expires_size;
         db_size = dictSize(db->dict);
         expires_size = dictSize(db->expires);
@@ -1179,6 +1202,7 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
 
         /* Iterate this DB writing every entry */
+        //迭代全局hash表，一个个的获取数据，写入
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
@@ -1186,6 +1210,7 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
+            //将key，val 和过期时间一起写入
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
 
             /* When this RDB is produced as part of an AOF rewrite, move
@@ -1216,14 +1241,17 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         dictReleaseIterator(di);
         di = NULL; /* So that we don't release it again on error. */
     }
-
+    //写完db后，写入一个结束标识
     if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
 
     /* EOF opcode */
+    //写入文件结束标识
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
 
     /* CRC64 checksum. It will be zero if checksum computation is disabled, the
      * loading code skips the check in this case. */
+
+    //CRC64 校验，不支持CRC64直接写0
     cksum = rdb->cksum;
     memrev64ifbe(&cksum);
     if (rioWrite(rdb,&cksum,8) == 0) goto werr;
@@ -1270,8 +1298,10 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     int error = 0;
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
+    //创建一个临时文件
     fp = fopen(tmpfile,"w");
     if (!fp) {
+        //创建失败的处理
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
             "Failed opening the RDB file %s (in server root dir %s) "
@@ -1281,24 +1311,27 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
             strerror(errno));
         return C_ERR;
     }
-
+    //初始化rio对象
     rioInitWithFile(&rdb,fp);
 
     if (server.rdb_save_incremental_fsync)
+        //设置缓冲区32mb
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
-
+    //将所有的db写入文件
     if (rdbSaveRio(&rdb,&error,RDB_SAVE_NONE,rsi) == C_ERR) {
         errno = error;
         goto werr;
     }
 
     /* Make sure data will not remain on the OS's output buffers */
+    //确保数据没有留在操作系统的缓冲区，全部写入了磁盘，并对资源进行关闭释放
     if (fflush(fp) == EOF) goto werr;
     if (fsync(fileno(fp)) == -1) goto werr;
     if (fclose(fp) == EOF) goto werr;
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
+    //将临时文件重命名为rd的名称
     if (rename(tmpfile,filename) == -1) {
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
@@ -1313,6 +1346,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     }
 
     serverLog(LL_NOTICE,"DB saved on disk");
+    //结束状态
     server.dirty = 0;
     server.lastsave = time(NULL);
     server.lastbgsave_status = C_OK;
@@ -1324,22 +1358,52 @@ werr:
     unlink(tmpfile);
     return C_ERR;
 }
-
+/**
+ * 后台保存rdb
+ * @param filename
+ * @param rsi
+ * @return
+ */
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
     long long start;
 
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
-
+    //开始执行 rdb 备份前的dirty 值，保存在dirty_before_bgsave中
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
     openChildInfoPipe();
 
     start = ustime();
+    //fork 一个子线程 给childpid
+    /**
+     * fork调用的一个奇妙之处就是它仅仅被调用一次，却能够返回两次，它可能有三种不同的返回值
+     *   - 在父进程中，fork返回新创建子进程的进程ID；
+     *   - 在子进程中，fork返回0；
+     *   - 如果出现错误，fork返回一个负值；
+     *
+     * 所以fork()成功，以后会执行两次
+     *    == 0 的时候，是子进程执行
+     *    == 1 的时候，是父进程执行
+     *
+     *  引用一位网友的话来解释fpid的值为什么在父子进程中不同。“其实就相当于链表，进程形成了链表，父进程的fpid(p 意味point)指向子进程的进程id, 因为子进程没有子进程，所以其fpid为0.
+     *
+     *  fork出错可能有两种原因：
+     *    1）当前的进程数已经达到了系统规定的上限，这时errno的值被设置为EAGAIN。
+     *    2）系统内存不足，这时errno的值被设置为ENOMEM。
+     *  创建新进程成功后，系统中出现两个基本完全相同的进程，这两个进程执行没有固定的先后顺序，哪个进程先执行要看系统的进程调度策略。
+     *  每个进程都有一个独特（互不相同）的进程标识符（process ID），可以通过getpid（）函数获得，还有一个记录父进程pid的变量，可以通过getppid（）函数获得变量的值。
+     *
+     *  https://www.cnblogs.com/jeakon/archive/2012/05/26/2816828.html
+     *
+     *  fork 把当前进程的情况拷贝了一份，两个进程使用的变量虽然名字一样，但是内存地址指向的不同
+     *
+     */
     if ((childpid = fork()) == 0) {
         int retval;
 
         /* Child */
+        //关闭自己不使用的父进程的资源
         closeClildUnusedResourceAfterFork();
         redisSetProcTitle("redis-rdb-bgsave");
         retval = rdbSave(filename,rsi);
@@ -2501,6 +2565,7 @@ void bgsaveCommand(client *c) {
     rsiptr = rdbPopulateSaveInfo(&rsi);
 
     if (server.rdb_child_pid != -1) {
+        //已经有子进程在执行rdb了，不用再处理了
         addReplyError(c,"Background save already in progress");
     } else if (server.aof_child_pid != -1) {
         if (schedule) {
@@ -2528,6 +2593,11 @@ void bgsaveCommand(client *c) {
  * pointer if the instance has a valid master client, otherwise NULL
  * is returned, and the RDB saving will not persist any replication related
  * information. */
+/**
+ * 填充rdb 要保存的信息
+ * @param rsi
+ * @return
+ */
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
     rdbSaveInfo rsi_init = RDB_SAVE_INFO_INIT;
     *rsi = rsi_init;

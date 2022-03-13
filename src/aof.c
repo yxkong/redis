@@ -1566,6 +1566,12 @@ void aofClosePipes(void) {
  *    finally will rename(2) the temp file in the actual file name.
  *    The the new file is reopened as the new append only file. Profit!
  */
+/**
+ * aof重写的方式：
+ * 1， 用户调用bgrewriteaof
+ * 2,  redis自身调用
+ * @return
+ */
 int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
     long long start;

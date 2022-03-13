@@ -150,7 +150,13 @@ static const rio rioFileIO = {
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
+/**
+ * 初始化rio
+ * @param r
+ * @param fp 文件
+ */
 void rioInitWithFile(rio *r, FILE *fp) {
+    //可以理解new了 rioFileIO对象
     *r = rioFileIO;
     r->io.file.fp = fp;
     r->io.file.buffered = 0;
@@ -299,6 +305,11 @@ void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
  * buffers sometimes the OS buffers way too much, resulting in too many
  * disk I/O concentrated in very little time. When we fsync in an explicit
  * way instead the I/O pressure is more distributed across time. */
+/**
+ * 设置刷盘的缓冲大小，防止操作系统在短时间内密集刷盘，导致短时间内磁盘I/O压力过大（防止操作系统缓冲区过大）
+ * @param r
+ * @param bytes
+ */
 void rioSetAutoSync(rio *r, off_t bytes) {
     serverAssert(r->read == rioFileIO.read);
     r->io.file.autosync = bytes;
