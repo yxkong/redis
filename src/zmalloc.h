@@ -77,6 +77,12 @@
 #define HAVE_DEFRAG
 #endif
 
+/**
+ * 内存申请接口
+ * redis 允许使用四种内存管理策略，分别是jemalloc,tcmalloc,苹果系统自带的malloc，和其他系统带的malloc
+ * @param size
+ * @return
+ */
 void *zmalloc(size_t size);
 void *zcalloc(size_t size);
 void *zrealloc(void *ptr, size_t size);

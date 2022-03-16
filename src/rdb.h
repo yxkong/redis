@@ -98,13 +98,19 @@
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_MODULE_AUX 247   /* Module auxiliary data. */
+//标识LRU空闲时间
 #define RDB_OPCODE_IDLE       248   /* LRU idle time. */
+//标识LFU访问频率信息
 #define RDB_OPCODE_FREQ       249   /* LFU frequency. */
+//标识RDB文件头的属性信息
 #define RDB_OPCODE_AUX        250   /* RDB aux field. */
 #define RDB_OPCODE_RESIZEDB   251   /* Hash table resize hint. */
+//标识以毫秒记录的过期时间
 #define RDB_OPCODE_EXPIRETIME_MS 252    /* Expire time in milliseconds. */
 #define RDB_OPCODE_EXPIRETIME 253       /* Old expire time in seconds. */
+//标识文件中后续键值对所属的数据库编号
 #define RDB_OPCODE_SELECTDB   254   /* DB number of the following keys. */
+//标识RDB文件结束，用在文件尾
 #define RDB_OPCODE_EOF        255   /* End of the RDB file. */
 
 /* Module serialized values sub opcodes */

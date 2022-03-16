@@ -585,8 +585,10 @@ int startBgsaveForReplication(int mincapa) {
      * otherwise slave will miss repl-stream-db. */
     if (rsiptr) {
         if (socket_target)
+            //不落盘进行传输（直接写到网络流里）
             retval = rdbSaveToSlavesSockets(rsiptr);
         else
+            //落入磁盘进行rdb
             retval = rdbSaveBackground(server.rdb_filename,rsiptr);
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
@@ -952,21 +954,27 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
  * otherwise C_ERR is passed to the function.
  * The 'type' argument is the type of the child that terminated
  * (if it had a disk or socket target). */
+/**
+ * bgsave以后，验证从机的状态，
+ */
 void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     listNode *ln;
     int startbgsave = 0;
     int mincapa = -1;
     listIter li;
-
+    //遍历所有的从机
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
-
+        //等待bgsave开始
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+            //标记开始，
             startbgsave = 1;
+            //一致性最小同步的数量？？
             mincapa = (mincapa == -1) ? slave->slave_capa :
                                         (mincapa & slave->slave_capa);
         } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
+            //等待bgsave结束
             struct redis_stat buf;
 
             /* If this was an RDB on disk save, we have to prepare to send
@@ -974,6 +982,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
              * already an RDB -> Slaves socket transfer, used in the case of
              * diskless replication, our work is trivial, we can just put
              * the slave online. */
+            //直接socket传输，online模式
             if (type == RDB_CHILD_TYPE_SOCKET) {
                 serverLog(LL_NOTICE,
                     "Streamed RDB transfer with replica %s succeeded (socket). Waiting for REPLCONF ACK from slave to enable streaming",
@@ -1012,6 +1021,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                     serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
                     continue;
                 }
+                //从rdb文件里读数据
                 if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
                     redis_fstat(slave->repldbfd,&buf) == -1) {
                     freeClient(slave);
@@ -1020,11 +1030,17 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 }
                 slave->repldboff = 0;
                 slave->repldbsize = buf.st_size;
+                //设置同步状态
                 slave->replstate = SLAVE_STATE_SEND_BULK;
                 slave->replpreamble = sdscatprintf(sdsempty(),"$%lld\r\n",
                     (unsigned long long) slave->repldbsize);
-
+                //删除之前的写事件
                 aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
+                /**
+                 *  创建新的写事件，绑定到对应的socket上slave->fd
+                 *  由处理sendBulkToSlave处理
+                 */
+
                 if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE, sendBulkToSlave, slave) == AE_ERR) {
                     freeClient(slave);
                     continue;
@@ -1032,6 +1048,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             }
         }
     }
+    //只有当
     if (startbgsave) startBgsaveForReplication(mincapa);
 }
 

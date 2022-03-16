@@ -778,8 +778,10 @@ int incrementallyRehash(int dbid) {
  * running childs. */
 void updateDictResizePolicy(void) {
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
+        //启用resize
         dictEnableResize();
     else
+        //禁用resize
         dictDisableResize();
 }
 
@@ -1329,10 +1331,24 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         int statloc;
         pid_t pid;
 
-        if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
-            int exitcode = WEXITSTATUS(statloc);
-            int bysignal = 0;
+        /**
+         * 获取终止的进程id
+         * statloc： 保存着子进程退出时的一些状态，它是一个指向int类型的指针，设置为null，直接kill掉子进程
+         * options：选项
+         *    WNOHANG  如果没有结束的子进程，马上返回，不等待
+         *    WUNTRACED 如果子进程进入暂停执行状态，则马上返回，不理会结束状态
+         *    也可以WNOHANG | WUNTRACED 没有任何已结束了的子进程或子进程进入暂停执行的状态，则马上返回不等待
+         */
 
+        if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
+            /**
+             * 获取子进程的结束代码，在rdbSaveBackground中rdb写成功，写入0，其他写入1
+             *  所以这块 成功是exitcode=0
+             */
+            int exitcode = WEXITSTATUS(statloc);
+            //子进程信号中断代码，如果非0 ，表示被信号中断
+            int bysignal = 0;
+            //如果子进程因为信号而结束，获取信号代码
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
             if (pid == -1) {
@@ -1342,12 +1358,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                     (int) server.rdb_child_pid,
                     (int) server.aof_child_pid);
             } else if (pid == server.rdb_child_pid) {
+                //是rdb子进程，说明rdb执行完了,执行后续的事件
                 backgroundSaveDoneHandler(exitcode,bysignal);
+                //不是因为信号中断的，接收子进程信息
                 if (!bysignal && exitcode == 0) receiveChildInfo();
             } else if (pid == server.aof_child_pid) {
                 backgroundRewriteDoneHandler(exitcode,bysignal);
                 if (!bysignal && exitcode == 0) receiveChildInfo();
             } else {
+                //无法识别的子进程，，直接移除
                 if (!ldbRemoveChild(pid)) {
                     serverLog(LL_WARNING,
                         "Warning, detected child with unmatched pid: %ld",
@@ -1355,11 +1374,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 }
             }
             updateDictResizePolicy();
+            //关闭子进程管道
             closeChildInfoPipe();
         }
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
+        //这一块就是处理配置文件中save 900 1 的地方
         for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
@@ -1367,6 +1388,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
              * the given amount of seconds, and if the latest bgsave was
              * successful or if, in case of an error, at least
              * CONFIG_BGSAVE_RETRY_DELAY seconds already elapsed. */
+            /**
+             * 判断是否达到了执行rbd的条件
+             */
             if (server.dirty >= sp->changes &&
                 server.unixtime-server.lastsave > sp->seconds &&
                 (server.unixtime-server.lastbgsave_try >
@@ -1390,11 +1414,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
         {
+            /**
+             * auto-aof-rewrite-percentage 100
+             * auto-aof-rewrite-min-size 64mb
+             */
             long long base = server.aof_rewrite_base_size ?
                 server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
+                //触发aof重写
                 rewriteAppendOnlyFileBackground();
             }
         }
@@ -4264,7 +4293,9 @@ void setupSignalHandlers(void) {
  * 子进程应当把不使用的资源进行关闭，防止父进程重启，子进程锁住资源导致父进程无法操作
  */
 void closeClildUnusedResourceAfterFork() {
+    //取消监听socket
     closeListeningSockets(0);
+    //将cluster_config_file_lock_fd 关闭
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
         close(server.cluster_config_file_lock_fd);  /* don't care if this fails */
 

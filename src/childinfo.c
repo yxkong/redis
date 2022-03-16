@@ -34,10 +34,12 @@
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
 void openChildInfoPipe(void) {
+    //创建pipe失败
     if (pipe(server.child_info_pipe) == -1) {
         /* On error our two file descriptors should be still set to -1,
          * but we call anyway cloesChildInfoPipe() since can't hurt. */
         closeChildInfoPipe();
+    //设置管道成功，将管道设置为非阻塞的
     } else if (anetNonBlock(NULL,server.child_info_pipe[0]) != ANET_OK) {
         closeChildInfoPipe();
     } else {
@@ -46,12 +48,17 @@ void openChildInfoPipe(void) {
 }
 
 /* Close the pipes opened with openChildInfoPipe(). */
+/**
+ * 关闭子进程管道，并将管道的fd值置为-1
+ */
 void closeChildInfoPipe(void) {
     if (server.child_info_pipe[0] != -1 ||
         server.child_info_pipe[1] != -1)
     {
+        //关闭管道
         close(server.child_info_pipe[0]);
         close(server.child_info_pipe[1]);
+        //并将值置为-1
         server.child_info_pipe[0] = -1;
         server.child_info_pipe[1] = -1;
     }
@@ -59,6 +66,10 @@ void closeChildInfoPipe(void) {
 
 /* Send COW data to parent. The child should call this function after populating
  * the corresponding fields it want to sent (according to the process type). */
+/**
+ * 通过管道和主进程交互，告诉主进程完成了备份了，
+ * @param ptype
+ */
 void sendChildInfo(int ptype) {
     if (server.child_info_pipe[1] == -1) return;
     server.child_info_data.magic = CHILD_INFO_MAGIC;
@@ -70,14 +81,20 @@ void sendChildInfo(int ptype) {
 }
 
 /* Receive COW data from parent. */
+/**
+ * 通过管道读取子进程的返回的信息
+ */
 void receiveChildInfo(void) {
     if (server.child_info_pipe[0] == -1) return;
     ssize_t wlen = sizeof(server.child_info_data);
     if (read(server.child_info_pipe[0],&server.child_info_data,wlen) == wlen &&
         server.child_info_data.magic == CHILD_INFO_MAGIC)
     {
+        //rdb的处理
         if (server.child_info_data.process_type == CHILD_INFO_TYPE_RDB) {
+            //获取子进程读写数据的大小
             server.stat_rdb_cow_bytes = server.child_info_data.cow_size;
+            //aof的处理
         } else if (server.child_info_data.process_type == CHILD_INFO_TYPE_AOF) {
             server.stat_aof_cow_bytes = server.child_info_data.cow_size;
         }

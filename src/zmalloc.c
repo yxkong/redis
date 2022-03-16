@@ -74,11 +74,11 @@ void zlibc_free(void *ptr) {
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #endif
 /**
- * 补齐内存
- * 需要补齐的内存：sizeof(long)-(_n&(sizeof(long)-1))
- * _n += sizeof(long)-(_n&(sizeof(long)-1))
- * 最后加上要补齐的
- * 将最后的内存增加到used_memory
+ * 更新已使用内存的大小
+ * 1， 先补齐内存 long 是8字节
+ *    通过位运算&  总内存&(long的长度-1)  利用两者都为1为1，其他为0  n&(n-1) 为0 如果不为0，表示没有对齐，需要补齐
+ *    最后加上要补齐的 sizeof(long)-(_n&(sizeof(long)-1))
+ * 2，将最后的内存增加到used_memory
  */
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n);                      \
@@ -105,6 +105,7 @@ static void zmalloc_default_oom(size_t size) {
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 /**
  * 使用zmalloc 分配内存
+ *
  * @param size
  * @return
  */
@@ -116,7 +117,8 @@ void *zmalloc(size_t size) {
     if (!ptr) zmalloc_oom_handler(size);
 //系统是否有malloc_size
 #ifdef HAVE_MALLOC_SIZE
-    //内存对齐
+    // jemalloc,tcmalloc 或者苹果系统支持实时获取指针所指内存大小
+    //内存对齐,是全局的
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     //返回指针位置
     return ptr;
@@ -399,6 +401,12 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
     return bytes;
 }
 #else
+/**
+ * 从/proc/self/smaps 获取数据
+ * @param field
+ * @param pid 如果pid =-1 取当前进程的，如果指定具体的pid，则从对应的pid中取
+ * @return
+ */
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
     ((void) field);
     ((void) pid);
@@ -406,6 +414,15 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
 }
 #endif
 
+/**
+ * proc文件系统为每个进程都提供了一个smaps文件
+ *  - Shared_Clean：和其他进程共享的未被改写的page的大小
+ *  - Shared_Dirty： 和其他进程共享的被改写的page的大小
+ *  - Private_Clean：未被改写的私有页面的大小。
+ *  - Private_Dirty： 已被改写的私有页面的大小
+ * @param pid
+ * @return
+ */
 size_t zmalloc_get_private_dirty(long pid) {
     return zmalloc_get_smap_bytes_by_field("Private_Dirty:",pid);
 }

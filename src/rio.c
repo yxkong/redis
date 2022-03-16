@@ -84,12 +84,16 @@ static int rioBufferFlush(rio *r) {
     UNUSED(r);
     return 1; /* Nothing to do, our write just appends to the buffer. */
 }
+/**
+ * Buffer的rio初始化
+ * 适用于内存缓存的rio对象，从文件加载rdb到内存的时候，使用
+ */
 
 static const rio rioBufferIO = {
-    rioBufferRead,
-    rioBufferWrite,
-    rioBufferTell,
-    rioBufferFlush,
+    rioBufferRead, //Buffer的读
+    rioBufferWrite,//Buffer的写
+    rioBufferTell, //buffer的指针移动
+    rioBufferFlush,// 刷入buffer
     NULL,           /* update_checksum */
     0,              /* current checksum */
     0,              /* bytes read or written */
@@ -137,12 +141,16 @@ static off_t rioFileTell(rio *r) {
 static int rioFileFlush(rio *r) {
     return (fflush(r->io.file.fp) == 0) ? 1 : 0;
 }
-
+/**
+ * const 规定一个一个变量在初始化之后不能改变
+ * 文件的rio的初始化
+ * 适用于文件的rio对象，写文件的时候使用
+ */
 static const rio rioFileIO = {
-    rioFileRead,
-    rioFileWrite,
-    rioFileTell,
-    rioFileFlush,
+    rioFileRead, //文件读
+    rioFileWrite,//文件写
+    rioFileTell,//文件指针移动
+    rioFileFlush,//刷入文件
     NULL,           /* update_checksum */
     0,              /* current checksum */
     0,              /* bytes read or written */
@@ -151,7 +159,7 @@ static const rio rioFileIO = {
 };
 
 /**
- * 初始化rio
+ * 初始化文件rio
  * @param r
  * @param fp 文件
  */
@@ -256,19 +264,27 @@ static int rioFdsetFlush(rio *r) {
      * buffer set to NULL with a count of zero as a flush request. */
     return rioFdsetWrite(r,NULL,0);
 }
-
+/**
+ * 网络操作的rio初始化
+ * 适用于网络的rio对象，写文件的时候使用
+ */
 static const rio rioFdsetIO = {
-    rioFdsetRead,
-    rioFdsetWrite,
-    rioFdsetTell,
-    rioFdsetFlush,
+    rioFdsetRead, //网络读
+    rioFdsetWrite, //网络写
+    rioFdsetTell, // fd的指针移动
+    rioFdsetFlush,//刷入网络
     NULL,           /* update_checksum */
     0,              /* current checksum */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
-
+/**
+ * 将 fd的集合初始化到rio对象中
+ * @param r
+ * @param fds
+ * @param numfds
+ */
 void rioInitWithFdset(rio *r, int *fds, int numfds) {
     int j;
 

@@ -327,6 +327,7 @@ typedef long long ustime_t; /* microsecond time type. */
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
  * to start the next background saving in order to send updates to it. */
+//从节点需要重新生成一个rdb文件
 #define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
@@ -951,6 +952,9 @@ struct moduleLoadQueueEntry {
     robj **argv;
 };
 
+/**
+ * 共享对象结构体
+ */
 struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
     *colon, *nullbulk, *nullmultibulk, *queued,
@@ -1298,13 +1302,28 @@ struct redisServer {
                                       to child process. */
     sds aof_child_diff;             /* AOF diff accumulator child side. */
     /* RDB persistence */
+    /**
+     * 记录多少键值发生变化
+     */
     long long dirty;                /* Changes to DB from the last save */
+    /**
+     * 记录bgsave之前多少键值发生变化
+     */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     /**
      * rdb 子线程，在initServer中初始化未-1
      */
     pid_t rdb_child_pid;            /* PID of RDB saving child */
+    /**
+     * 配置文件中的save触发时机
+     *   save 900 1
+     *   save 300 10
+     *   save 60 10000
+     */
     struct saveparam *saveparams;   /* Save points array for RDB */
+    /**
+     * 有多少条配置
+     */
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
     int rdb_compression;            /* Use compression in RDB? */
@@ -1320,6 +1339,7 @@ struct redisServer {
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
     /* Pipe and data structures for child -> parent info sharing. */
+    //读写管道
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
     struct {
         int process_type;           /* AOF or RDB child? */

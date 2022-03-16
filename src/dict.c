@@ -1116,11 +1116,15 @@ void dictEmpty(dict *d, void(callback)(void*)) {
     d->rehashidx = -1;
     d->iterators = 0;
 }
-
+/**
+ * 启用resize
+ */
 void dictEnableResize(void) {
     dict_can_resize = 1;
 }
-
+/**
+ * 禁用resize
+ */
 void dictDisableResize(void) {
     dict_can_resize = 0;
 }

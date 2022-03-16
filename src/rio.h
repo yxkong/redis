@@ -36,45 +36,62 @@
 #include <stdint.h>
 #include "sds.h"
 
+/**
+ * rio结构体，可以认为是指定了rdb的格式提供标准的读写io的操作方法，
+ */
 struct _rio {
     /* Backend functions.
      * Since this functions do not tolerate short writes or reads the return
      * value is simplified to: zero on error, non zero on complete success. */
+    //函数指针，包括：读、写、文件指针移动、刷入磁盘操作
+    //读函数指针
     size_t (*read)(struct _rio *, void *buf, size_t len);
+    //写函数指针
     size_t (*write)(struct _rio *, const void *buf, size_t len);
+    //指针移动函数的指针
     off_t (*tell)(struct _rio *);
+    // 刷入函数的指针
     int (*flush)(struct _rio *);
     /* The update_cksum method if not NULL is used to compute the checksum of
      * all the data that was read or written so far. The method should be
      * designed so that can be called with the current checksum, and the buf
      * and len fields pointing to the new block of data to add to the checksum
      * computation. */
+    //校验和计算方法
     void (*update_cksum)(struct _rio *, const void *buf, size_t len);
 
     /* The current checksum */
+    //校验和
     uint64_t cksum;
 
     /* number of bytes read or written */
+    //已读取或写入的字符串
     size_t processed_bytes;
 
     /* maximum single read or write chunk size */
+    //每次最多处理的字符数
     size_t max_processing_chunk;
 
     /* Backend-specific vars. */
+    //io共用体（可标识为内存，文件，网络）
     union {
         /* In-memory buffer target. */
+        //内存buffer的
         struct {
             sds ptr;
             off_t pos;
         } buffer;
         /* Stdio file pointer target. */
+        //文件
         struct {
             FILE *fp;
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
         /* Multiple FDs target (used to write to N sockets). */
+        //socke的
         struct {
+            //文件描述符，也是socket的 fd
             int *fds;       /* File descriptors. */
             int *state;     /* Error state of each fd. 0 (if ok) or errno. */
             int numfds;
