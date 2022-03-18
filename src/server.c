@@ -1318,6 +1318,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
+    /**这次调用是之前有rdb进程的时候，设置为了aof重写等待任务（本该执行的逻辑之前因为rdb没有执行，所以直接触发）*/
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1 &&
         server.aof_rewrite_scheduled)
     {
@@ -1418,8 +1419,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
              * auto-aof-rewrite-percentage 100
              * auto-aof-rewrite-min-size 64mb
              */
-            long long base = server.aof_rewrite_base_size ?
-                server.aof_rewrite_base_size : 1;
+            long long base = server.aof_rewrite_base_size ? server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
@@ -1432,12 +1432,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
      * completed. */
+    //设置了刷入延期开始时间，直接调用
     if (server.aof_flush_postponed_start) flushAppendOnlyFile(0);
 
     /* AOF write errors: in this case we have a buffer to flush as well and
      * clear the AOF error in case of success to make the DB writable again,
      * however to try every second is enough in case of 'hz' is set to
      * an higher frequency. */
+    //每秒再判断一次，如果上一次执行异常，再刷入一次
     run_with_period(1000) {
         if (server.aof_last_write_status == C_ERR)
             flushAppendOnlyFile(0);
@@ -2548,6 +2550,14 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  * command execution, for example when serving a blocked client, you
  * want to use propagate().
  */
+/**
+ * 传播执行的命令到aof或从节点
+ * @param cmd 对应执行的命令
+ * @param dbid 对应的db
+ * @param argv
+ * @param argc
+ * @param flags
+ */
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
@@ -2688,6 +2698,8 @@ void call(client *c, int flags) {
     c->cmd->proc(c);
     //计算执行时间
     duration = ustime()-start;
+    //在对应的命令里执行一次，dirty+1
+    //这里表示本次命令有多少次修改
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -2726,6 +2738,9 @@ void call(client *c, int flags) {
     }
 
     /* Propagate the command into the AOF and replication link */
+    /**
+     * aof和主从复制处理
+     */
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
     {
@@ -2743,6 +2758,7 @@ void call(client *c, int flags) {
         /* However prevent AOF / replication propagation if the command
          * implementations called preventCommandPropagation() or similar,
          * or if we don't have the call() flags to do so. */
+        //有些命令不能aof和主从复制
         if (c->flags & CLIENT_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
                 propagate_flags &= ~PROPAGATE_REPL;
@@ -4370,7 +4386,7 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
     serverPanic("Redis aborting for OUT OF MEMORY");
 }
 /**
- * 设置处理的title
+ * 设置处理的进程名称
  * @param title
  */
 void redisSetProcTitle(char *title) {

@@ -371,6 +371,12 @@ typedef long long ustime_t; /* microsecond time type. */
 #define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */
 
 /* Append only defines */
+/**
+ * 写入文件的方式
+ * 对应配置中的appendfsync everysec
+ * 0 是不写
+ * 1 是
+ */
 #define AOF_FSYNC_NO 0
 #define AOF_FSYNC_ALWAYS 1
 #define AOF_FSYNC_EVERYSEC 2
@@ -473,8 +479,10 @@ typedef long long ustime_t; /* microsecond time type. */
 
 /**
  * @brief 条件判断宏定义
+ * 当hz=10的时候，小于100直接执行，
+ *   大于100，根据serverCron执行的轮次估算，比如传入1000，10次出发一次
  * _ms_ 传入的时间周期
- *  当hz=10的时候： _ms_<100 或 定时任务总数取余_ms_再除以10000 返回true，如果返回true就执行对应的逻辑
+ *  当hz=10的时候： _ms_<100 或 定时任务总数取余_ms_再除以100 返回true，如果返回true就执行对应的逻辑
  */
 #define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
@@ -1268,21 +1276,32 @@ struct redisServer {
     int aof_fsync;                  /* Kind of fsync() policy */
     char *aof_filename;             /* Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
+    /**aof超出配置大小的比例，模式是100%，可以理解为阈值 */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
+    /**aof至少多大才可以触发*/
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
+    /**最新启动或重写时的大小，启动默认为1，重写后赋值为重写后aof的大小*/
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
+    /**aof 当前文件大小*/
     off_t aof_current_size;         /* AOF current size. */
+    /**aof写入磁盘的便宜指针*/
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
+    /**aof 重写等待任务，一旦有了bgsave进程，即使触发了aof重写，也会等待，不然aof和bgsave同时执行*/
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
+    /**aof 重写子进程的线程id*/
     pid_t aof_child_pid;            /* PID if rewriting process */
+    /**aof的缓冲区*/
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
+    //aof文件的描述符
     int aof_fd;       /* File descriptor of currently selected AOF file */
     int aof_selected_db; /* Currently selected DB in AOF */
+    //刷入延期开始时间
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
+    //最近aof重写的状态
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
     int aof_rewrite_incremental_fsync;/* fsync incrementally while aof rewriting? */
@@ -1292,14 +1311,21 @@ struct redisServer {
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     /* AOF pipes used to communicate between parent and child during rewrite. */
+    //父进程往子进程写数据的管道
     int aof_pipe_write_data_to_child;
+    //子进程从父进程读数据的管道
     int aof_pipe_read_data_from_parent;
+    //子进程发送ack给父进程的管道
     int aof_pipe_write_ack_to_parent;
+    //父进程读子进程发送的ack信息的管道
     int aof_pipe_read_ack_from_child;
+    //父进程发送ack信息给子进程的管道
     int aof_pipe_write_ack_to_child;
+    //子进程读取父进程发送的ack信息的管道
     int aof_pipe_read_ack_from_parent;
     int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
                                       to child process. */
+    //追加的数据
     sds aof_child_diff;             /* AOF diff accumulator child side. */
     /* RDB persistence */
     /**

@@ -82,6 +82,14 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
  * within 'timeout' milliseconds the operation succeed and 'size' is returned.
  * Otherwise the operation fails, -1 is returned, and an unspecified amount of
  * data could be read from the file descriptor. */
+/**
+ * 同步读信息，直到超时
+ * @param fd
+ * @param ptr
+ * @param size 读取的大小
+ * @param timeout
+ * @return
+ */
 ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
     ssize_t nread, totread = 0;
     long long start = mstime();
@@ -95,6 +103,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
 
         /* Optimistically try to read before checking if the file descriptor
          * is actually readable. At worst we get EAGAIN. */
+        //读取成功后
         nread = read(fd,ptr,size);
         if (nread == 0) return -1; /* short read. */
         if (nread == -1) {
@@ -104,6 +113,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
             size -= nread;
             totread += nread;
         }
+        //返回读取到的信息
         if (size == 0) return totread;
 
         /* Wait */

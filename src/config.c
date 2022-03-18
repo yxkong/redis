@@ -97,7 +97,7 @@ configEnum supervised_mode_enum[] = {
     {"no", SUPERVISED_NONE},
     {NULL, 0}
 };
-
+//aof写入方式的枚举
 configEnum aof_fsync_enum[] = {
     {"everysec", AOF_FSYNC_EVERYSEC},
     {"always", AOF_FSYNC_ALWAYS},
