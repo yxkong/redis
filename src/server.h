@@ -1385,23 +1385,29 @@ struct redisServer {
     //master当前的offset
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
-    //最后选择的复制从库？
+    //最后选择的复制从库个数
     int slaveseldb;                 /* Last SELECTed DB in replication output */
-    //master ping 从库的时间周期
+    //master ping 从库的时间周期（主从心跳频率）
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
-    //复制缓冲区
+    //复制积压缓冲区
     char *repl_backlog;             /* Replication backlog for partial syncs */
+    //复制积压的大小
     long long repl_backlog_size;    /* Backlog circular buffer size */
+    //backlog写入的新数据的大小
     long long repl_backlog_histlen; /* Backlog actual data length */
+    //下次想backlog写入的索引位置
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,
-                                       that is the next byte will'll write to.*/
+    //积压数据的起始位置所对应的全局主从复制的偏移量                                   that is the next byte will'll write to.*/
     long long repl_backlog_off;     /* Replication "master offset" of first
-                                       byte in the replication backlog buffer.*/
+                                        byte in the replication backlog buffer.*/
+    //积压空间有效时间
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
                                        Only valid if server.slaves len is 0. */
+    //最小从库写入数量
     int repl_min_slaves_to_write;   /* Min number of slaves to write. */
+    //最大偏移量
     int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
     int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
@@ -1505,7 +1511,10 @@ struct redisServer {
     mstime_t mstime;            /* 'unixtime' in milliseconds. */
     ustime_t ustime;            /* 'unixtime' in microseconds. */
     /* Pubsub */
-    /**订阅客户端*/
+    /**订阅客户端
+     * key 为正在订阅的频道
+     * val 为订阅这个频道的客户端
+     * */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
     list *pubsub_patterns;  /* A list of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an

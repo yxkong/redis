@@ -114,9 +114,7 @@ static void _dictReset(dictht *ht)
  * @param privDataPtr
  * @return
  */
-dict *dictCreate(dictType *type,
-        void *privDataPtr)
-{
+dict *dictCreate(dictType *type,void *privDataPtr){
     dict *d = zmalloc(sizeof(*d));
 
     _dictInit(d,type,privDataPtr);
@@ -150,6 +148,12 @@ int dictResize(dict *d)
 }
 
 /* Expand or create the hash table */
+/**
+ * hash桶扩缩容，并创建hash表
+ * @param d 对应的hash表
+ * @param size 扩容的大小
+ * @return
+ */
 int dictExpand(dict *d, unsigned long size)
 {
     /* the size is invalid if it is smaller than the number of
@@ -158,12 +162,15 @@ int dictExpand(dict *d, unsigned long size)
         return DICT_ERR;
 
     dictht n; /* the new hash table */
+    //重置后的容量，2倍增长，最小为4，相当于一次校验，必须是2的倍数
     unsigned long realsize = _dictNextPower(size);
 
     /* Rehashing to the same table size is not useful. */
+    //没有变化，就直接返回
     if (realsize == d->ht[0].size) return DICT_ERR;
 
     /* Allocate the new hash table and initialize all pointers to NULL */
+    //新hash表的大小
     n.size = realsize;
     n.sizemask = realsize-1;
     n.table = zcalloc(realsize*sizeof(dictEntry*));
@@ -178,6 +185,7 @@ int dictExpand(dict *d, unsigned long size)
 
     /* Prepare a second hash table for incremental rehashing */
     d->ht[1] = n;
+    //设置rehash的索引，从第0个桶开始
     d->rehashidx = 0;
     return DICT_OK;
 }
@@ -193,26 +201,30 @@ int dictExpand(dict *d, unsigned long size)
  * work it does would be unbound and the function may block for a long time. */
 
 /**
- * @brief 进行rehash
- * 
+ * @brief 渐进式rehash搬迁
  * @param d 
- * @param n 
+ * @param n 执行次数
  * @return int 
  */
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
+    //先判断是否需要rehash，=-1的时候返回true，不等-1就拦截了
     if (!dictIsRehashing(d)) return 0;
-
+    /**
+     * 执行次数 并且没有搬空
+     */
     while(n-- && d->ht[0].used != 0) {
         dictEntry *de, *nextde;
 
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
         assert(d->ht[0].size > (unsigned long)d->rehashidx);
+        //挨个轮训
         while(d->ht[0].table[d->rehashidx] == NULL) {
             d->rehashidx++;
             if (--empty_visits == 0) return 1;
         }
+        //获取到对应的桶
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
         while(de) {
@@ -220,7 +232,9 @@ int dictRehash(dict *d, int n) {
 
             nextde = de->next;
             /* Get the index in the new hash table */
+            //获取在新的hash表的位置
             h = dictHashKey(d, de->key) & d->ht[1].sizemask;
+            //采用头插法
             de->next = d->ht[1].table[h];
             d->ht[1].table[h] = de;
             d->ht[0].used--;
@@ -228,10 +242,16 @@ int dictRehash(dict *d, int n) {
             de = nextde;
         }
         d->ht[0].table[d->rehashidx] = NULL;
+        //hash索引
         d->rehashidx++;
     }
 
     /* Check if we already rehashed the whole table... */
+    /**
+     *  如果已经搬迁完了，释放ht[0]空间，并将 d->ht[1] 赋值给ht[0]
+     *  重置ht[1]空间
+     *  将hash索引 d->rehashidx设置为-1
+     */
     if (d->ht[0].used == 0) {
         zfree(d->ht[0].table);
         d->ht[0] = d->ht[1];
@@ -252,12 +272,19 @@ long long timeInMilliseconds(void) {
 }
 
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
+/**
+ * 执行rehash多少毫秒
+ * @param d
+ * @param ms  搬迁执行的毫秒数
+ * @return
+ */
 int dictRehashMilliseconds(dict *d, int ms) {
     long long start = timeInMilliseconds();
     int rehashes = 0;
-
+    //最少搬迁100个桶
     while(dictRehash(d,100)) {
         rehashes += 100;
+        //超时就中断
         if (timeInMilliseconds()-start > ms) break;
     }
     return rehashes;
@@ -272,6 +299,10 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 //rehash
+/**
+ * 一次只搬迁一个hash槽
+ * @param d
+ */
 static void _dictRehashStep(dict *d) {
     if (d->iterators == 0) dictRehash(d,1);
 }
@@ -321,8 +352,7 @@ int dictAdd(dict *d, void *key, void *val)
  * @param existing 已经存在，赋值给existing
  * @return dictEntry* 
  */
-dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
-{
+dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing){
     long index;
     dictEntry *entry;
     dictht *ht;
@@ -343,7 +373,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * Insert the element in top, with the assumption that in a database
      * system it is more likely that recently added entries are accessed
      * more frequently. */
-    //不存在的时候，选择哪个槽
+    //正在rehash的时候，选择哪个槽
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     //申请空间
     entry = zmalloc(sizeof(*entry));
@@ -557,7 +587,7 @@ dictEntry *dictFind(dict *d, const void *key)
 
     //hash表为空直接返回
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
-    //
+    //查找一次
     if (dictIsRehashing(d)) _dictRehashStep(d);
     //通过key获取hash，并
     h = dictHashKey(d, key);
@@ -567,6 +597,7 @@ dictEntry *dictFind(dict *d, const void *key)
         //获取对应链表的头节点
         he = d->ht[table].table[idx];
         while(he) {
+            //hash冲突以后，根据key的值判断
             if (key==he->key || dictCompareKeys(d, key, he->key))
                 return he;
             he = he->next;
@@ -1037,15 +1068,22 @@ unsigned long dictScan(dict *d,
 static int _dictExpandIfNeeded(dict *d)
 {
     /* Incremental rehashing already in progress. Return. */
+    //已经在rehash了，就直接拦截返回成功
     if (dictIsRehashing(d)) return DICT_OK;
 
     /* If the hash table is empty expand it to the initial size. */
+    //如果size为零，扩展到4
     if (d->ht[0].size == 0) return dictExpand(d, DICT_HT_INITIAL_SIZE);
 
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
+    /**
+     * 1，已经插入的元素数量大于总容量
+     * 2，dict_can_resize 没有被设置为0 ，设置为0禁止resize
+     * 3, 已插入的元素数量是桶容量的5倍
+     */
     if (d->ht[0].used >= d->ht[0].size &&
         (dict_can_resize ||
          d->ht[0].used/d->ht[0].size > dict_force_resize_ratio))
@@ -1058,6 +1096,7 @@ static int _dictExpandIfNeeded(dict *d)
 /* Our hash table capability is a power of two */
 static unsigned long _dictNextPower(unsigned long size)
 {
+    //最小hash桶为4
     unsigned long i = DICT_HT_INITIAL_SIZE;
 
     if (size >= LONG_MAX) return LONG_MAX + 1LU;
@@ -1077,8 +1116,7 @@ static unsigned long _dictNextPower(unsigned long size)
  * index is always returned in the context of the second (new) hash table. */
 
 /**
- * @brief 
- * 
+ * key索引
  * @param d 
  * @param key 
  * @param hash 
@@ -1092,8 +1130,12 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
     if (existing) *existing = NULL;
 
     /* Expand the hash table if needed */
+    /**
+     * 判断是否需要扩容
+     */
     if (_dictExpandIfNeeded(d) == DICT_ERR)
         return -1;
+    //
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
         /* Search if this slot does not already contain the given key */

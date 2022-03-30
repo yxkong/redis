@@ -61,11 +61,16 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
     int retval = 0;
 
     /* Add the channel to the client -> channels hash table */
+    //将客户端订阅的频道都放入c->pubsub_channels的hash表中
     if (dictAdd(c->pubsub_channels,channel,NULL) == DICT_OK) {
         retval = 1;
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
+        /**
+         * 将客户端添加到hash表中，以channel为key
+         */
         de = dictFind(server.pubsub_channels,channel);
+        //不存在客户端，创建列表
         if (de == NULL) {
             clients = listCreate();
             dictAdd(server.pubsub_channels,channel,clients);
@@ -73,6 +78,7 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
         } else {
             clients = dictGetVal(de);
         }
+        //追加
         listAddNodeTail(clients,c);
     }
     /* Notify the client */
@@ -236,7 +242,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
 
     /* Send to clients listening for that channel */
     /**
-     * 获取所有的订阅客户端，并回复消息
+     * 从server.pubsub_channels中获取订阅channel的客户端链表
      */
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
@@ -245,9 +251,11 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         listIter li;
 
         listRewind(list,&li);
+        //遍历所有的客户端，一个个的通知
         while ((ln = listNext(&li)) != NULL) {
-            client *c = ln->value;
 
+            client *c = ln->value;
+            //将消息以固定格式回复，message,通道，消息内容
             addReply(c,shared.mbulkhdr[3]);
             addReply(c,shared.messagebulk);
             addReplyBulk(c,channel);
@@ -256,12 +264,15 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         }
     }
     /* Send to clients listening to matching channels */
+    /**
+     * 从server.pubsub_patterns 获取所有的客户端，
+     */
     if (listLength(server.pubsub_patterns)) {
         listRewind(server.pubsub_patterns,&li);
         channel = getDecodedObject(channel);
         while ((ln = listNext(&li)) != NULL) {
             pubsubPattern *pat = ln->value;
-
+            //按模式匹配所有的客户端,只要pat->pattern->ptr能匹配到对应的channel->ptr，就发
             if (stringmatchlen((char*)pat->pattern->ptr,
                                 sdslen(pat->pattern->ptr),
                                 (char*)channel->ptr,
@@ -285,7 +296,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
 
 void subscribeCommand(client *c) {
     int j;
-
+    //订阅多个通道的时候
     for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;

@@ -68,21 +68,29 @@ typedef struct dictType {
  * implement incremental rehashing, for the old to the new table. */
 //hash表结构
 typedef struct dictht {
-    //dictEntry 数组
+    //dictEntry 数组，hash桶
     dictEntry **table;
-    //总大小
+    //桶的个数
     unsigned long size;
+    //用来取模（size-1）
     unsigned long sizemask;
-    //以用大小（内有多少个数）
+    //记录添加的进桶的数量
     unsigned long used;
 } dictht;
 
 typedef struct dict {
     dictType *type;
     void *privdata;
+    /**
+     * 位置为0的是保存rehash之前的
+     * 位置为1的保存rehash过程中的
+     */
     dictht ht[2];
-    //rehashidx ==-1 不会进行rehash
+    /**
+     * rehash时候的桶的索引
+     */
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    //当前迭代的标识，默认为0，为了防止并发
     unsigned long iterators; /* number of iterators currently running */
 } dict;
 

@@ -730,10 +730,13 @@ dictType replScriptCacheDictType = {
     dictSdsDestructor,          /* key destructor */
     NULL                        /* val destructor */
 };
-
+/**
+ * 缩容时的判断条件
+ * @param dict
+ * @return
+ */
 int htNeedsResize(dict *dict) {
     long long size, used;
-
     size = dictSlots(dict);
     used = dictSize(dict);
     return (size > DICT_HT_INITIAL_SIZE &&
@@ -742,6 +745,10 @@ int htNeedsResize(dict *dict) {
 
 /* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
  * we resize the hash table to save memory */
+/**
+ * 尝试进行rehash以节省内存，主要是缩容
+ * @param dbid
+ */
 void tryResizeHashTables(int dbid) {
     if (htNeedsResize(server.db[dbid].dict))
         dictResize(server.db[dbid].dict);
@@ -1087,6 +1094,7 @@ void databasesCron(void) {
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
         /* Resize */
+        //调整table的大小
         for (j = 0; j < dbs_per_call; j++) {
             tryResizeHashTables(resize_db % server.dbnum);
             resize_db++;

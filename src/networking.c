@@ -373,7 +373,7 @@ void addReply(client *c, robj *obj) {
     } else if (obj->encoding == OBJ_ENCODING_INT) {
         /* For integer encoded strings we just convert it into a string
          * using our optimized function, and attach the resulting string
-         * to the output buffer. */
+         * to Rthe output buffer. */
         //回复的内容是编码是int（真省空间）
         char buf[32];
         size_t len = ll2string(buf,sizeof(buf),(long)obj->ptr);
