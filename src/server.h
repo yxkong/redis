@@ -304,7 +304,9 @@ typedef long long ustime_t; /* microsecond time type. */
 
 /* Slave replication state. Used in server.repl_state for slaves to remember
  * what to do next. */
+//主从初始状态（未激活）
 #define REPL_STATE_NONE 0 /* No active replication */
+//主从链接状态
 #define REPL_STATE_CONNECT 1 /* Must connect to master */
 #define REPL_STATE_CONNECTING 2 /* Connecting to master */
 /* --- Handshake states, must be ordered --- */
@@ -711,8 +713,7 @@ typedef struct RedisModuleDigest {
  * OBJ_STRING -> OBJ_ENCODING_INT  使用整数值实现的字符串对象
  * OBJ_STRING -> OBJ_ENCODING_RAW  使用sds实现的字符串对象
  * OBJ_STRING -> OBJ_ENCODING_EMBSTR 使用embstr编码的sds实现的字符串
- * OBJ_LIST  -> OBJ_ENCODING_ZIPLIST 使用压缩列表实现的列表
- * OBJ_LIST  -> OBJ_ENCODING_LINKEDLIST  使用双端链表实现的列表
+ * OBJ_LIST  -> OBJ_ENCODING_QUICKLIST 使用快速列表实现（混合了压缩列表和双端链表）
  * OBJ_SET  -> OBJ_ENCODING_HT 使用字典实现的集合
  * OBJ_SET  -> OBJ_ENCODING_INTSET 使用整数集合实现的集合
  * OBJ_ZSET  -> OBJ_ENCODING_ZIPLIST 使用压缩列表实现的有序集合
@@ -980,23 +981,41 @@ struct sharedObjectsStruct {
 };
 
 /* ZSETs use a specialized version of Skiplists */
+/**
+ * 跳跃表节点
+ */
 typedef struct zskiplistNode {
+    //member对象
     sds ele;
+    //分值
     double score;
+    //后退指针
     struct zskiplistNode *backward;
+    //层级描述
     struct zskiplistLevel {
+        //前进指针
         struct zskiplistNode *forward;
+        //跨越节点的数量
         unsigned long span;
     } level[];
 } zskiplistNode;
-
+/**
+ * zset的数据结构跳跃表
+ */
 typedef struct zskiplist {
+    //头尾节点指针
     struct zskiplistNode *header, *tail;
+    //节点数量
     unsigned long length;
+    //最大层数
     int level;
 } zskiplist;
 
+/**
+ * 跳表结构的zset
+ */
 typedef struct zset {
+    //kv形式，存储所有的member和对应的score
     dict *dict;
     zskiplist *zsl;
 } zset;
@@ -1413,15 +1432,20 @@ struct redisServer {
     int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
+    //用于和主库进行验证的密码
     char *masterauth;               /* AUTH with this password with master */
-    //从节点有masterhost，主节点没有
+    //从节点持有的master节点的ip
     char *masterhost;               /* Hostname of master */
+    //从节点持有的master节点的端口
     int masterport;                 /* Port of master */
+    //主从超时时间
     int repl_timeout;               /* Timeout after N seconds of master idle */
-    //从节点的主节点
+    //从节点持有的master的客户端
     client *master;     /* Client that is master for this slave */
+    //从库上缓存的主库信息
     client *cached_master; /* Cached master to be reused for PSYNC. */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
+    //从库的复制状态
     int repl_state;          /* Replication status if the instance is a slave */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
@@ -1942,8 +1966,17 @@ int hasActiveChildProcess();
 
 /* Input flags. */
 #define ZADD_NONE 0
+/**
+ * 增长
+ */
 #define ZADD_INCR (1<<0)    /* Increment the score instead of setting it. */
+/**
+ * 不处理不存在的元素
+ */
 #define ZADD_NX (1<<1)      /* Don't touch elements not already existing. */
+/**
+ * 只处理已经存在的元素
+ */
 #define ZADD_XX (1<<2)      /* Only touch elements already existing. */
 
 /* Output flags. */
@@ -1958,6 +1991,7 @@ int hasActiveChildProcess();
 /* Struct to hold a inclusive/exclusive range spec by score comparison. */
 typedef struct {
     double min, max;
+    //表示min或max是否包含特殊符号'(',1表示包含
     int minex, maxex; /* are min or max exclusive? */
 } zrangespec;
 

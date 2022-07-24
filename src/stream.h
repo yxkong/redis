@@ -16,6 +16,7 @@ typedef struct streamID {
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Number of elements inside this stream. */
+    //最后一次生成的streamID
     streamID last_id;       /* Zero if there are yet no items. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
 } stream;

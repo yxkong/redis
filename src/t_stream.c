@@ -98,6 +98,13 @@ unsigned long streamLength(const robj *subject) {
  * milliseconds Unix time is greater than the previous one, just use this
  * as time part and start with sequence part of zero. Otherwise we use the
  * previous time (and never go backward) and increment the sequence. */
+/**
+ * 获取id
+ * 时间递增，都是用毫秒级时间+seq
+ * 非id递增（也有可能时钟回退）直接使用上一次毫秒级时间，然后自增seq
+ * @param last_id
+ * @param new_id
+ */
 void streamNextID(streamID *last_id, streamID *new_id) {
     uint64_t ms = mstime();
     if (ms > last_id->ms) {
@@ -202,6 +209,15 @@ int streamCompareID(streamID *a, streamID *b) {
  *    current top ID is greater or equal. errno will be set to EDOM.
  * 2. If a size of a single element or the sum of the elements is too big to
  *    be stored into the stream. errno will be set to ERANGE. */
+/**
+ * 添加数据到stream中
+ * @param s 对应的stream
+ * @param argv 参数开始位置
+ * @param numfields 参数个数
+ * @param added_id 传递进来的id
+ * @param use_id 传递进来的id
+ * @return
+ */
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id) {
     
     /* Generate the new entry ID. */
@@ -1125,6 +1141,14 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
 
 /* Look the stream at 'key' and return the corresponding stream object.
  * The function creates a key setting it to an empty stream if needed. */
+/**
+ * 这里有两个操作
+ * 1，查询到key，并校验key是否stream类型，不是返回类型异常
+ * 2，不存在，创建一个steam类型的redisObject
+ * @param c
+ * @param key
+ * @return
+ */
 robj *streamTypeLookupWriteOrCreate(client *c, robj *key) {
     robj *o = lookupKeyWrite(c->db,key);
     if (o == NULL) {
@@ -1234,7 +1258,13 @@ void streamRewriteApproxMaxlen(client *c, stream *s, int maxlen_arg_idx) {
 }
 
 /* XADD key [MAXLEN [~|=] <count>] <ID or *> [field value] [field value] ... */
+/**
+ * 添加消息
+ * XADD mystream * field1 value1 field2 value2 field3 value3
+ * @param c
+ */
 void xaddCommand(client *c) {
+    //初始化参数
     streamID id;
     int id_given = 0; /* Was an ID different than "*" specified? */
     long long maxlen = -1;  /* If left to -1 no trimming is performed. */
@@ -1245,17 +1275,27 @@ void xaddCommand(client *c) {
     /* Parse options. */
     int i = 2; /* This is the first argument position where we could
                   find an option, or the ID. */
+    //根据参数数量遍历
     for (; i < c->argc; i++) {
+        //剩余参数个数
         int moreargs = (c->argc-1) - i; /* Number of additional arguments. */
+        //获取当前参数
         char *opt = c->argv[i]->ptr;
+        printf("%d %s",moreargs,opt);
+        serverLog(LL_WARNING, "stream moreargs:%s  argv:%s",moreargs, c->argv[i]);
+        // * 号表示id为内部处理
         if (opt[0] == '*' && opt[1] == '\0') {
             /* This is just a fast path for the common case of auto-ID
              * creation. */
             break;
+            //忽略大小写比较 相同返回0
         } else if (!strcasecmp(opt,"maxlen") && moreargs) {
+            //解析maxlen参数
             approx_maxlen = 0;
+            //获取下一个参数
             char *next = c->argv[i+1]->ptr;
             /* Check for the form MAXLEN ~ <count>. */
+            //无穷大的maxlen
             if (moreargs >= 2 && next[0] == '~' && next[1] == '\0') {
                 approx_maxlen = 1;
                 i++;
@@ -1297,10 +1337,14 @@ void xaddCommand(client *c) {
     /* Lookup the stream at key. */
     robj *o;
     stream *s;
+    //查询校验或创建stream
     if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     s = o->ptr;
 
     /* Return ASAP if the stream has reached the last possible ID */
+    /**
+     * 校验是否用尽
+     */
     if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
         addReplyError(c,"The stream has exhausted the last possible ID, "
                         "unable to add more items");

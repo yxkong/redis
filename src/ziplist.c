@@ -608,7 +608,7 @@ unsigned char *ziplistNew(void) {
     // <zlbytes> <zltail> <zllen> <entry> <entry> ... <entry> <zlend>
     //12+1
     unsigned int bytes = ZIPLIST_HEADER_SIZE+ZIPLIST_END_SIZE;
-    //申请13字节的空间
+    //申请13字节的空间,ziplist的 head + 结束标识的大小
     unsigned char *zl = zmalloc(bytes);
     ZIPLIST_BYTES(zl) = intrev32ifbe(bytes);
     ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(ZIPLIST_HEADER_SIZE);
@@ -773,6 +773,14 @@ unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int
 }
 
 /* Insert item at "p". */
+/**
+ * 把slen长度的字符串s插入到压缩列表对应的位置p中
+ * @param zl
+ * @param p
+ * @param s
+ * @param slen
+ * @return
+ */
 unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
     size_t curlen = intrev32ifbe(ZIPLIST_BYTES(zl)), reqlen;
     unsigned int prevlensize, prevlen = 0;
@@ -820,6 +828,7 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
 
     /* Store offset because a realloc may change the address of zl. */
     offset = p-zl;
+    //插入之前，重新设置压缩列表大小
     zl = ziplistResize(zl,curlen+reqlen+nextdiff);
     p = zl+offset;
 
@@ -988,7 +997,14 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
     }
     return target;
 }
-
+/**
+ * 把大小为slen的s插入到zl对应的位置where中
+ * @param zl
+ * @param s
+ * @param slen
+ * @param where
+ * @return
+ */
 unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where) {
     unsigned char *p;
     p = (where == ZIPLIST_HEAD) ? ZIPLIST_ENTRY_HEAD(zl) : ZIPLIST_ENTRY_END(zl);

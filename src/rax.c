@@ -198,10 +198,16 @@ raxNode *raxNewNode(size_t children, int datafield) {
 
 /* Allocate a new rax and return its pointer. On out of memory the function
  * returns NULL. */
+/**
+ * 申请一个新的rax，并返回指针，如果内存溢出，返回null
+ * @return
+ */
 rax *raxNew(void) {
+    //申请内存空间
     rax *rax = rax_malloc(sizeof(*rax));
     if (rax == NULL) return NULL;
     rax->numele = 0;
+    //空的头节点，也占1个numnodes的数量
     rax->numnodes = 1;
     rax->head = raxNewNode(0,0);
     if (rax->head == NULL) {
@@ -513,6 +519,10 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
     raxNode *h, **parentlink;
 
     debugf("### Insert %.*s with value %p\n", (int)len, s, data);
+    /**
+     * 寻找最优的存放节点位置
+     * j用来记录分裂的位置
+     */
     i = raxLowWalk(rax,s,len,&h,&parentlink,&j,NULL);
 
     /* If i == len we walked following the whole string. If we are not
@@ -520,6 +530,10 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
      * inserted or this middle node is currently not a key, but can represent
      * our key. We have just to reallocate the node and make space for the
      * data pointer. */
+    /**
+     * 如果  i=len，说明遍历了整个树
+     * 如果当前节点为非压缩节点，且没有找到分裂位置，那么就说明这个字符串已经存在
+     */
     if (i == len && (!h->iscompr || j == 0 /* not in the middle if j is 0 */)) {
         debugf("### Insert: node representing key exists\n");
         /* Make space for the value pointer if needed. */
@@ -533,6 +547,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         }
 
         /* Update the existing key if there is already one. */
+        //表示当前节点已经存在，需要更新value
         if (h->iskey) {
             if (old) *old = raxGetData(h);
             if (overwrite) raxSetData(h,data);
@@ -542,6 +557,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
 
         /* Otherwise set the node as a key. Note that raxSetData()
          * will set h->iskey. */
+        //说明键不存在，需要set键值
         raxSetData(h,data);
         rax->numele++;
         return 1; /* Element inserted. */
@@ -899,6 +915,15 @@ oom:
 
 /* Overwriting insert. Just a wrapper for raxGenericInsert() that will
  * update the element if there is already one for the same key. */
+/**
+ * 插入数据，只是对raxGenericInsert的包装
+ * @param rax
+ * @param s
+ * @param len
+ * @param data
+ * @param old
+ * @return
+ */
 int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
     return raxGenericInsert(rax,s,len,data,old,1);
 }

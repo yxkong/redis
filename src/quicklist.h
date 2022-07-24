@@ -41,14 +41,25 @@
  * recompress: 1 bit, bool, true if node is temporarry decompressed for usage.
  * attempted_compress: 1 bit, boolean, used for verifying during testing.
  * extra: 10 bits, free for future use; pads out the remainder of 32 bits */
+/**
+ * 快速列表的节点结构
+ */
 typedef struct quicklistNode {
+    //前驱节点指针
     struct quicklistNode *prev;
+    //后继节点指针
     struct quicklistNode *next;
+    //指向压缩列表的指针（当前节点被压缩，指向一个quicklistLZF结构的指针）
     unsigned char *zl;
+    //压缩列表所占字节总数
     unsigned int sz;             /* ziplist size in bytes */
+    //压缩列表中的元素数量
     unsigned int count : 16;     /* count of items in ziplist */
+    //编码，原生字节数组为1，压缩存储为2
     unsigned int encoding : 2;   /* RAW==1 or LZF==2 */
+    //表示quicklistNode 节点是否采用ziplist结构保存数据，
     unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 */
+    //是否再次压缩，不设置，表示ziplist结构，设置为1表示quicklistLZF，
     unsigned int recompress : 1; /* was this node previous compressed? */
     unsigned int attempted_compress : 1; /* node can't compress; too small */
     unsigned int extra : 10; /* more bits to steal for future usage */
@@ -59,8 +70,13 @@ typedef struct quicklistNode {
  * 'compressed' is LZF data with total (compressed) length 'sz'
  * NOTE: uncompressed length is stored in quicklistNode->sz.
  * When quicklistNode->zl is compressed, node->zl points to a quicklistLZF */
+/**
+ * 被压缩的ziplist
+ */
 typedef struct quicklistLZF {
+    //表示被压缩后的ziplist的大小
     unsigned int sz; /* LZF size in bytes*/
+    //保存压缩后的ziplist的数组
     char compressed[];
 } quicklistLZF;
 
@@ -70,12 +86,21 @@ typedef struct quicklistLZF {
  * 'compress' is: -1 if compression disabled, otherwise it's the number
  *                of quicklistNodes to leave uncompressed at ends of quicklist.
  * 'fill' is the user-requested (or default) fill factor. */
+/**
+ * 快速列表
+ */
 typedef struct quicklist {
+    //头节点指针
     quicklistNode *head;
+    //尾节点指针
     quicklistNode *tail;
+    //元素个数总和
     unsigned long count;        /* total count of all entries in all ziplists */
+    //快速列表的节点个数
     unsigned long len;          /* number of quicklistNodes */
+    //压缩列表的最大大小，初始化时用的，list-max-ziplist-size的值
     int fill : 16;              /* fill factor for individual nodes */
+    //结点压缩深度,初始化时用的 list-compress-depth 的值，0表示不压缩
     unsigned int compress : 16; /* depth of end nodes not to compress;0=off */
 } quicklist;
 
@@ -86,7 +111,9 @@ typedef struct quicklistIter {
     long offset; /* offset in current ziplist */
     int direction;
 } quicklistIter;
-
+/**
+ * zip
+ */
 typedef struct quicklistEntry {
     const quicklist *quicklist;
     quicklistNode *node;

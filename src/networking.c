@@ -849,7 +849,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        //针对新监听到的请求处理cfd
+        //针对新监听到的请求处理（创建一个client并将新生成的cfd与其绑定）
         acceptCommonHandler(cfd,0,cip);
     }
 }

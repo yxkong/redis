@@ -180,10 +180,15 @@
  */
 
 struct hllhdr {
+    //魔法值,固定
     char magic[4];      /* "HYLL" */
+    //密集结构或稀疏结构HLL_DENSE or HLL_SPARSE
     uint8_t encoding;   /* HLL_DENSE or HLL_SPARSE. */
+    //保留位，为0
     uint8_t notused[3]; /* Reserved for future use, must be zero. */
+    //基数大小缓存
     uint8_t card[8];    /* Cached cardinality, little endian. */
+    //数据字节数组
     uint8_t registers[]; /* Data bytes. */
 };
 

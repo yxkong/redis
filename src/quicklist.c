@@ -490,13 +490,16 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
     assert(sz < UINT32_MAX); /* TODO: add support for quicklist nodes that are sds encoded (not zipped) */
+    //判断压缩节点是否有位置
     if (likely(
             _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {
         quicklist->head->zl =
             ziplistPush(quicklist->head->zl, value, sz, ZIPLIST_HEAD);
         quicklistNodeUpdateSz(quicklist->head);
     } else {
+        //创建一个quicklistNode节点
         quicklistNode *node = quicklistCreateNode();
+        //该节点的指针指向一个ziplist
         node->zl = ziplistPush(ziplistNew(), value, sz, ZIPLIST_HEAD);
 
         quicklistNodeUpdateSz(node);
@@ -841,10 +844,19 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
  *
  * If after==1, the new value is inserted after 'entry', otherwise
  * the new value is inserted before 'entry'. */
+/**
+ * 给quicklist插入quicklistEntry
+ * @param quicklist
+ * @param entry
+ * @param value
+ * @param sz
+ * @param after
+ */
 REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
                                    void *value, const size_t sz, int after) {
     int full = 0, at_tail = 0, at_head = 0, full_next = 0, full_prev = 0;
     int fill = quicklist->fill;
+    //获取数据内容
     quicklistNode *node = entry->node;
     quicklistNode *new_node = NULL;
     assert(sz < UINT32_MAX); /* TODO: add support for quicklist nodes that are sds encoded (not zipped) */
@@ -1414,6 +1426,13 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
 }
 
 /* Wrapper to allow argument-based switching between HEAD/TAIL pop */
+/**
+ * 将数据value插入quicklist中
+ * @param quicklist
+ * @param value
+ * @param sz  数据大小
+ * @param where 插入位置
+ */
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where) {
     if (where == QUICKLIST_HEAD) {

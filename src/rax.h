@@ -39,6 +39,7 @@
  * between [], otherwise it is written between ().
  *
  * This is the vanilla representation:
+ * 未压缩的基数树
  *
  *              (f) ""
  *                \
@@ -60,7 +61,7 @@
  * and only the link to the node representing the last character node is
  * provided inside the representation. So the above representation is turend
  * into:
- *
+ *   压缩后的基数树
  *                  ["foo"] ""
  *                     |
  *                  [t   b] "foo"
@@ -74,7 +75,7 @@
  * "node splitting" operation is needed, since the "foo" prefix is no longer
  * composed of nodes having a single child one after the other. This is the
  * above tree and the resulting node splitting after this event happens:
- *
+ *  再插入一个first的样子
  *
  *                    (f) ""
  *                    /
@@ -93,12 +94,18 @@
  * it must be compressed back into a single node.
  *
  */
-
+/**
+ * 基数树（前缀压缩树），相同前缀的字符串，其前缀可以作为一个公共的父节点
+ */
 #define RAX_NODE_MAX_SIZE ((1<<29)-1)
 typedef struct raxNode {
+    // 当前节点是否包含一个key  占用 1 Byte
     uint32_t iskey:1;     /* Does this node contain a key? */
+    //当前key对应的value是否为空，占用 1 Byte，允许value为null
     uint32_t isnull:1;    /* Associated value is NULL (don't store it). */
+    //当前节点是否为压缩节点，占用 1 Byte,是否压缩节点
     uint32_t iscompr:1;   /* Node is compressed. */
+    //非压缩节点的子节点个数，或压缩节点压缩的字符串长度
     uint32_t size:29;     /* Number of children, or compressed string len. */
     /* Data layout is as follows:
      *
@@ -127,12 +134,18 @@ typedef struct raxNode {
      * children, an additional value pointer is present (as you can see
      * in the representation above as "value-ptr" field).
      */
+    //填充字段，当前节点包含的字符串以及子节点的指针，key对应的value的指针
     unsigned char data[];
 } raxNode;
-
+/**
+ * 代表一个基数树
+ */
 typedef struct rax {
+    //指向头节点的指针
     raxNode *head;
+    //元素个数
     uint64_t numele;
+    //节点个数
     uint64_t numnodes;
 } rax;
 
@@ -172,13 +185,18 @@ typedef int (*raxNodeCallback)(raxNode **noderef);
 #define RAX_ITER_EOF (1<<1)    /* End of iteration reached. */
 #define RAX_ITER_SAFE (1<<2)   /* Safe iterator, allows operations while
                                   iterating. But it is slower. */
+/**
+ * rax的迭代器，用于遍历Rax中的所有key
+ */
 typedef struct raxIterator {
     int flags;
     rax *rt;                /* Radix tree we are iterating. */
+    //当前遍历的key
     unsigned char *key;     /* The current string. */
     void *data;             /* Data associated to this key. */
     size_t key_len;         /* Current key length. */
     size_t key_max;         /* Max key len the current key buffer can hold. */
+    //当前key较大的时候，会从堆空间申请内存
     unsigned char key_static_string[RAX_ITER_STATIC_LEN];
     raxNode *node;          /* Current node. Only for unsafe iteration. */
     raxStack stack;         /* Stack used for unsafe iteration. */

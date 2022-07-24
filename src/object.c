@@ -332,7 +332,10 @@ robj *createZsetZiplistObject(void) {
     o->encoding = OBJ_ENCODING_ZIPLIST;
     return o;
 }
-
+/**
+ * 创建一个stream类型的redisObject
+ * @return
+ */
 robj *createStreamObject(void) {
     stream *s = streamNew();
     robj *o = createObject(OBJ_STREAM,s);

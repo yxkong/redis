@@ -40,6 +40,12 @@
  *
  * There is no need for the caller to increment the refcount of 'value' as
  * the function takes care of it if needed. */
+/**
+ * 将数据value 插入到目标list对象 subject中
+ * @param subject
+ * @param value
+ * @param where
+ */
 void listTypePush(robj *subject, robj *value, int where) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         int pos = (where == LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
@@ -233,7 +239,7 @@ void pushGenericCommand(client *c, int where) {
     addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
     //如果push成功
     if (pushed) {
-        //创建一个时间
+        //创建一个事件
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
         //发送建修改信号
         signalModifiedKey(c->db,c->argv[1]);
@@ -280,7 +286,10 @@ void lpushxCommand(client *c) {
 void rpushxCommand(client *c) {
     pushxGenericCommand(c,LIST_TAIL);
 }
-
+/**
+ * list插入
+ * @param c
+ */
 void linsertCommand(client *c) {
     int where;
     robj *subject;
@@ -309,6 +318,7 @@ void linsertCommand(client *c) {
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
     while (listTypeNext(iter,&entry)) {
         if (listTypeEqual(&entry,c->argv[3])) {
+            //插入节点
             listTypeInsert(&entry,c->argv[4],where);
             inserted = 1;
             break;
