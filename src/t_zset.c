@@ -70,7 +70,7 @@ int zslLexValueLteMax(sds value, zlexrangespec *spec);
  * The SDS string 'ele' is referenced by the node after the call. */
 /**
  * 创建对应level层级的zskiplistNode
- * @param level 层级
+ * @param level 指定层级
  * @param score  分值
  * @param ele 元素
  * @return
@@ -84,6 +84,9 @@ zskiplistNode *zslCreateNode(int level, double score, sds ele) {
 }
 
 /* Create a new skiplist. */
+/**
+ * 创建一个跳跃表
+ */
 zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
@@ -91,6 +94,7 @@ zskiplist *zslCreate(void) {
     zsl = zmalloc(sizeof(*zsl));
     zsl->level = 1;
     zsl->length = 0;
+    // header是一个权重分值为0，元素为NULL的对象
     zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
     for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {
         zsl->header->level[j].forward = NULL;
@@ -128,13 +132,19 @@ void zslFree(zskiplist *zsl) {
  * levels are less likely to be returned. */
 
 /**
- * 随机增加层级
- *  最大层级为64，
- *  (random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF)  25%的概率会增加一层
+ * 随机层级
+ *   1层级的概率为 100%；
+ *   2层级的概率为 1/4
+ *   3层级的概率为 1/4 * 1/4
+ * 后续每增加一层级的概率都是指数级上升
  * @return
  */
 int zslRandomLevel(void) {
     int level = 1;
+    /**
+     * 完全靠随机， 0xFFFF = 65535 ,  ZSKIPLIST_P = 0.25
+     * 如果随机每次随机出来都小于 0.25*65535  level都加1，直到随机出大于
+     */
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
         level += 1;
     return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
@@ -145,35 +155,38 @@ int zslRandomLevel(void) {
  * of the passed SDS string 'ele'. */
 /**
  * 跳表结构插入一条数据
- * @param zsl
- * @param score
- * @param ele
+ * @param zsl 从zset上获取到跳跃表
+ * @param score 权重分值
+ * @param ele 元素
  * @return
  */
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     /**
-     * update 保存header指针对应的level中的每一个跨度节点，最多64
-     * x 表示每个level层级指向的地址
+     * update 保存对应层级小于插入权重分值的前一个节点，最起码为header
+     *   新添加层级保存的是跳跃表的header指针
+     * x 表示zskiplistNode节点指针
      */
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    /**
+     * 每一层对应到update对应层级那个位置的跨度
+     */
     unsigned int rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
     serverAssert(!isnan(score));
+    //最开始为头节点
     x = zsl->header;
-    //逆序遍历当前的层级
+    //逆序遍历当前的所有层级，找到新插入权重分值每一层左侧的数据
     for (i = zsl->level-1; i >= 0; i--) {
         /* store rank that is crossed to reach the insert position */
         //最上层 rank为0，否则为i+1(相当于逆序了)
-        /**
-         * 比如4层
-         * rank[3] = 0
-         * rank[2] =
-         */
         rank[i] = i == (zsl->level-1) ? 0 : rank[i+1];
         /**
-         *  前驱指针存在，并且（当前指针对应的分值小于插入分值 或者（当前分值等于插入分值 并且现有元素和插入元素不相同））
-         *
+         *  前驱指针存在，
+         *   并且（当前指针对应的分值小于插入分值 或者（当前分值等于插入分值 并且现有元素和插入元素不相同））
+         *  比如当前权重分值为 20，跨度5，插入权重分值为30 ，或者 权重分值都为20，但是元素长度不相同（分值相同的话看元素长度大小，小的在前）
+         *  继续往下一个节点走，会记录下满足条件的跨度
+         *  通过这块，可以看到在zset里是根据分数权重，然后根据元素的长度大小升序排序
          */
         while (x->level[i].forward &&
                 (x->level[i].forward->score < score ||
@@ -185,7 +198,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
             //链表往下走
             x = x->level[i].forward;
         }
-        //将头节点更新到update数组里
+        //将每一层的要插入值的最近一个节点更新到update数组里
         update[i] = x;
     }
     /* we assume the element is not already inside, since we allow duplicated
@@ -193,40 +206,57 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
      * caller of zslInsert() should test in the hash table if the element is
      * already inside or not. */
     /**
-     * 随机增加一个层级（默认1，最大64层级）
-     * 每次有1/4的概率会增加一个层级
+     * 随机层级
+     *   1层级的概率为 100%；
+     *   2层级的概率为 1/4
+     *   3层级的概率为 1/4 * 1/4
+     * 后续每增加一层级的概率都是指数级上升
      */
     level = zslRandomLevel();
-    //层级增加
+    // 扩容层级，随机出来的层级> 当前层级
     if (level > zsl->level) {
-        //原来的层级
+        //这块增加的可能1层，也可能多层，最多（64-当前层级）
         for (i = zsl->level; i < level; i++) {
+            //新添加的层级rank都为0
             rank[i] = 0;
             //新添加层级取的是zskplist的header对应的指针
             update[i] = zsl->header;
-            //原来最顶层的跨度就是元素的总数
+            //新添加层级的跨度就是元素的总数
             update[i]->level[i].span = zsl->length;
         }
         //更新层级数
         zsl->level = level;
     }
-    //创建新的zskiplistNode节点
+    //给新插入的元素和权重分值创建zskiplistNode，层级为刚随机出来的层级
     x = zslCreateNode(level,score,ele);
-    //将update数组里的信息copy过去
+    /**
+     * 把新插入的节点，插入到每一层级中
+     * 更新每一层级的链表结构
+     *  并将新插入节点对应层级的前驱指针和跨度维护进去
+     */
     for (i = 0; i < level; i++) {
+        //链表插入节点
         x->level[i].forward = update[i]->level[i].forward;
+        /**
+         *   新的层级update[i]为 header节点
+         *   旧的层级就指向
+         */
         update[i]->level[i].forward = x;
 
         /* update span covered by update[i] as x is inserted here */
+        //计算每一层级的跨度并更新进去
         x->level[i].span = update[i]->level[i].span - (rank[0] - rank[i]);
         update[i]->level[i].span = (rank[0] - rank[i]) + 1;
     }
 
     /* increment span for untouched levels */
+    /**
+     * 对于没有达到的层级，增加1
+     */
     for (i = level; i < zsl->level; i++) {
         update[i]->level[i].span++;
     }
-
+    //新插入节点的回退指针为最底层的前一个节点
     x->backward = (update[0] == zsl->header) ? NULL : update[0];
     if (x->level[0].forward)
         x->level[0].forward->backward = x;
@@ -405,7 +435,7 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
     if (!zslIsInRange(zsl,range)) return NULL;
 
     x = zsl->header;
-    //查找第一个元素，从上到下遍历所有的层级
+    //从上到下遍历所有的层级，定位到最小的元素
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *OUT* of range. */
         //定位最小元素所在的位置
@@ -1416,8 +1446,8 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * zset添加元素
  * @param zobj  zset的存储结构
  * @param score 添加的分值
- * @param ele  元素对象
- * @param flags
+ * @param ele  元素对象的指针
+ * @param flags 对应flags的指针
  * @param newscore 添加成功后的分值
  * @return
  */
@@ -1486,10 +1516,11 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
     /* Note that the above block handling ziplist would have either returned or
      * converted the key to skiplist. */
     if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        //zset 指针
         zset *zs = zobj->ptr;
         zskiplistNode *znode;
         dictEntry *de;
-
+        //从zset的全局hash表中查找对应的key，找到说明已经存在，如果需要更新就操作，不需要就返回
         de = dictFind(zs->dict,ele);
         if (de != NULL) {
             /* NX? Return, same element already exists. */
@@ -1511,12 +1542,14 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             }
 
             /* Remove and re-insert when score changes. */
-            //更新完分值后，删除，并重新插入
+            //分值不一样
             if (score != curscore) {
+                // 这里先删除，然后重新插入，单线程保证了一致性，最后插入还是走的zslInsert
                 znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
                  * update the score. */
+                //更新全局hash表里的权重分值
                 dictGetVal(de) = &znode->score; /* Update score ptr. */
                 *flags |= ZADD_UPDATED;
             }
@@ -2702,7 +2735,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
      * 0，正序的时候
      *   第二个参数为 min ，第三个参数为max
      * 1，逆序
-     *   第二个参数为max，第三阿哥参数为min
+     *   第二个参数为max，第三个参数为min
      */
     if (reverse) {
         /* Range is given as [max,min] */
@@ -2799,16 +2832,21 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
             }
 
             /* We know the element exists, so ziplistGet should always succeed */
+            /**
+             * 通过ziplistGet 获取对应的元素值，可能是str，也可能是long
+             */
             serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
 
             rangelen++;
             if (vstr == NULL) {
+                //是long类型的时候，回复
                 addReplyBulkLongLong(c,vlong);
             } else {
+                //字符串类型的回复
                 addReplyBulkCBuffer(c,vstr,vlen);
             }
-
             if (withscores) {
+                //需要权重分值，带上
                 addReplyDouble(c,score);
             }
 
@@ -2827,7 +2865,9 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         zskiplistNode *ln;
 
         /* If reversed, get the last node in range as starting point. */
-        //查到起始或终点
+        /**
+         * 按结构来说，最终都是找到查询的起点
+         */
         if (reverse) {
             //查找终点  80  50
             ln = zslLastInRange(zsl,&range);
@@ -2859,6 +2899,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
         while (ln && limit--) {
             /* Abort when the node is no longer in range. */
+            //如果获取到的对象权重分值，已经不在范围内了，直接break
             if (reverse) {
                 if (!zslValueGteMin(ln->score,&range)) break;
             } else {
@@ -2866,16 +2907,20 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
             }
 
             rangelen++;
+            //添加到回复缓冲区
             addReplyBulkCBuffer(c,ln->ele,sdslen(ln->ele));
-
             if (withscores) {
+                //需要带权重分值，将权重分值添加到回复缓冲区
                 addReplyDouble(c,ln->score);
             }
 
             /* Move to next node */
+            //就是正反序遍历链表
             if (reverse) {
+                //回退，永远是level[0]
                 ln = ln->backward;
             } else {
+                //最底层前进
                 ln = ln->level[0].forward;
             }
         }

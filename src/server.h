@@ -987,15 +987,15 @@ struct sharedObjectsStruct {
 typedef struct zskiplistNode {
     //member对象
     sds ele;
-    //分值
+    //权重分值
     double score;
-    //后退指针
+    //后向指针
     struct zskiplistNode *backward;
-    //层级描述
+    //层级描述，是一个zskiplistLevel类型的柔性数组
     struct zskiplistLevel {
-        //前进指针
+        //前向指针
         struct zskiplistNode *forward;
-        //跨越节点的数量
+        //跨越节点的数量（跨度）
         unsigned long span;
     } level[];
 } zskiplistNode;

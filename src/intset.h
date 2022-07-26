@@ -31,10 +31,15 @@
 #ifndef __INTSET_H
 #define __INTSET_H
 #include <stdint.h>
-
+/**
+ * intset的数据结构
+ */
 typedef struct intset {
+    //编码方式，保存的是，当前最大的编码格式，可以是16位整数，32位整数，64位整数
     uint32_t encoding;
+    //元素个数
     uint32_t length;
+    //存储的是数组指针，按从小到大排列
     int8_t contents[];
 } intset;
 

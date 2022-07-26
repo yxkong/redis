@@ -41,7 +41,7 @@
 
 #include "listpack.h"
 #include "listpack_malloc.h"
-
+//listpack 物理大小
 #define LP_HDR_SIZE 6       /* 32 bit total len + 16 bit number of elements. */
 #define LP_HDR_NUMELE_UNKNOWN UINT16_MAX
 #define LP_MAX_INT_ENCODING_LEN 9
@@ -204,10 +204,14 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
 /* Create a new, empty listpack.
  * On success the new listpack is returned, otherwise an error is returned. */
 unsigned char *lpNew(void) {
+    //申请指定空间
     unsigned char *lp = lp_malloc(LP_HDR_SIZE+1);
     if (lp == NULL) return NULL;
+    //设置listpack的大小
     lpSetTotalBytes(lp,LP_HDR_SIZE+1);
+    //设置listpack的元素个人数为0
     lpSetNumElements(lp,0);
+    //设置listpack的结尾标识，也是255
     lp[LP_HDR_SIZE] = LP_EOF;
     return lp;
 }

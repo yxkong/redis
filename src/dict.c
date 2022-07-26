@@ -576,8 +576,8 @@ void dictRelease(dict *d)
 /**
  * @brief 根据String类型的key 从对应的hash表中获取dictEntry
  * 
- * @param ht 对应的hash表
- * @param key 
+ * @param ht 对应的hash表的指针
+ * @param key  key的指针
  * @return dictEntry* 
  */
 dictEntry *dictFind(dict *d, const void *key)

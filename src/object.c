@@ -163,6 +163,9 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  *
  * The current limit of 44 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
+/**
+ * 嵌入式字符串最大长度限制
+ */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 /**
  * 创建redisObject
@@ -292,14 +295,20 @@ robj *createZiplistObject(void) {
     o->encoding = OBJ_ENCODING_ZIPLIST;
     return o;
 }
-
+/**
+ * 创建一个普通hash表
+ * @return
+ */
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(OBJ_SET,d);
     o->encoding = OBJ_ENCODING_HT;
     return o;
 }
-
+/**
+ * 创建一个intset
+ * @return
+ */
 robj *createIntsetObject(void) {
     intset *is = intsetNew();
     robj *o = createObject(OBJ_SET,is);
@@ -315,13 +324,19 @@ robj *createHashObject(void) {
     return o;
 }
 
+/**
+ * 创建跳跃表结构的zset
+ * @return
+ */
 robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
-
+    // hash，能快速定位
     zs->dict = dictCreate(&zsetDictType,NULL);
+    //跳跃表
     zs->zsl = zslCreate();
     o = createObject(OBJ_ZSET,zs);
+    //指定编码
     o->encoding = OBJ_ENCODING_SKIPLIST;
     return o;
 }

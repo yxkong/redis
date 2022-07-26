@@ -197,6 +197,11 @@ sds sdsnew(const char *init) {
 }
 
 /* Duplicate an sds string. */
+/**
+ * 将sds压缩成一个紧凑型的sds，没有任何冗余空间
+ * @param s
+ * @return
+ */
 sds sdsdup(const sds s) {
     //生成一个固定长度的sds字符串
     return sdsnewlen(s, sdslen(s));
@@ -942,7 +947,7 @@ void sdstoupper(sds s) {
  * the smaller one. */
 
 /**
- * @brief 字符串比较
+ * @brief 字符串长度比较
  * 
  * @param s1 
  * @param s2 

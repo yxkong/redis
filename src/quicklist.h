@@ -57,11 +57,13 @@ typedef struct quicklistNode {
     unsigned int count : 16;     /* count of items in ziplist */
     //编码，原生字节数组为1，压缩存储为2
     unsigned int encoding : 2;   /* RAW==1 or LZF==2 */
-    //表示quicklistNode 节点是否采用ziplist结构保存数据，
+    //存储方式  表示quicklistNode 节点是否采用ziplist结构保存数据，
     unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 */
-    //是否再次压缩，不设置，表示ziplist结构，设置为1表示quicklistLZF，
+    //是否被压缩，不设置，表示ziplist结构，设置为1表示quicklistLZF，
     unsigned int recompress : 1; /* was this node previous compressed? */
+    //数据能否被压缩
     unsigned int attempted_compress : 1; /* node can't compress; too small */
+    //预留位
     unsigned int extra : 10; /* more bits to steal for future usage */
 } quicklistNode;
 

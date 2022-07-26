@@ -43,6 +43,11 @@
 #define INTSET_ENC_INT64 (sizeof(int64_t))
 
 /* Return the required encoding for the provided value. */
+/**
+ * 返回v的编码类型
+ * @param v
+ * @return
+ */
 static uint8_t _intsetValueEncoding(int64_t v) {
     if (v < INT32_MIN || v > INT32_MAX)
         return INTSET_ENC_INT64;
@@ -114,6 +119,13 @@ static intset *intsetResize(intset *is, uint32_t len) {
  * sets "pos" to the position of the value within the intset. Return 0 when
  * the value is not present in the intset and sets "pos" to the position
  * where "value" can be inserted. */
+/**
+ * 查找并插入值
+ * @param is 集合指针
+ * @param value 插入的值
+ * @param pos 返回插入位置
+ * @return 返回0 表示插入成功（或已经在数组中），返回1 表示插入失败
+ */
 static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
     int min = 0, max = intrev32ifbe(is->length)-1, mid = -1;
     int64_t cur = -1;
@@ -126,15 +138,20 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
         /* Check for the case where we know we cannot find the value,
          * but do know the insert position. */
         if (value > _intsetGet(is,max)) {
+            //比最大值大，直接插入到最后
             if (pos) *pos = intrev32ifbe(is->length);
             return 0;
         } else if (value < _intsetGet(is,0)) {
+            //比最小值小，直接插入到最前面
             if (pos) *pos = 0;
             return 0;
         }
     }
 
     while(max >= min) {
+        /**
+         * 通过二分查找，找到插入的位置
+         */
         mid = ((unsigned int)min + (unsigned int)max) >> 1;
         cur = _intsetGet(is,mid);
         if (value > cur) {
@@ -203,7 +220,15 @@ static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
 }
 
 /* Insert an integer in the intset */
+/**
+ * 添加元素
+ * @param is
+ * @param value
+ * @param success
+ * @return
+ */
 intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
+    //获取编码类型
     uint8_t valenc = _intsetValueEncoding(value);
     uint32_t pos;
     if (success) *success = 1;
@@ -211,18 +236,21 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
     /* Upgrade encoding if necessary. If we need to upgrade, we know that
      * this value should be either appended (if > 0) or prepended (if < 0),
      * because it lies outside the range of existing values. */
+    //当前数值的编码类型比现有的大
     if (valenc > intrev32ifbe(is->encoding)) {
         /* This always succeeds, so we don't need to curry *success. */
+        //更新编码类型，并插入，既然当前的编码类型比之前的都大，铁定没有重复元素
         return intsetUpgradeAndAdd(is,value);
     } else {
         /* Abort if the value is already present in the set.
          * This call will populate "pos" with the right position to insert
          * the value when it cannot be found. */
+        //能搜索到，直接返回，set的唯一性
         if (intsetSearch(is,value,&pos)) {
             if (success) *success = 0;
             return is;
         }
-
+        //重新设置大小，length +1
         is = intsetResize(is,intrev32ifbe(is->length)+1);
         if (pos < intrev32ifbe(is->length)) intsetMoveTail(is,pos,pos+1);
     }
