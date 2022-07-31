@@ -3034,7 +3034,7 @@ int processCommand(client *c) {
     /* Exec the command */
     /**
      * @brief 执行命令
-     * 开始了事务（CLIENT_MULTI）直接放入Multi队列
+     * 开启了事务（CLIENT_MULTI）直接放入Multi队列
      * 
      */
     if (c->flags & CLIENT_MULTI &&

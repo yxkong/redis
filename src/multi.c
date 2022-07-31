@@ -54,6 +54,10 @@ void freeClientMultiState(client *c) {
 }
 
 /* Add a new command into the MULTI commands queue */
+/**
+ * 添加命令到事务队列
+ * @param c
+ */
 void queueMultiCommand(client *c) {
     multiCmd *mc;
     int j;
@@ -84,12 +88,16 @@ void flagTransaction(client *c) {
     if (c->flags & CLIENT_MULTI)
         c->flags |= CLIENT_DIRTY_EXEC;
 }
-
+/**
+ * server接收到multi指令后的动作
+ * @param c
+ */
 void multiCommand(client *c) {
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"MULTI calls can not be nested");
         return;
     }
+    //将客户端标记为CLIENT_MULTI
     c->flags |= CLIENT_MULTI;
     addReply(c,shared.ok);
 }
@@ -113,6 +121,10 @@ void execCommandPropagateMulti(client *c) {
     decrRefCount(multistring);
 }
 
+/**
+ * 命令执行
+ * @param c
+ */
 void execCommand(client *c) {
     int j;
     robj **orig_argv;
@@ -160,6 +172,7 @@ void execCommand(client *c) {
     orig_argc = c->argc;
     orig_cmd = c->cmd;
     addReplyMultiBulkLen(c,c->mstate.count);
+    //关键点，遍历，并执行
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;

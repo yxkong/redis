@@ -51,13 +51,12 @@ int keyIsExpired(redisDb *db, robj *key);
 
 /**
  * @brief 更新LFU高16位的时钟和后8位记录的数
- * 
  * @param val 
  */
 void updateLFU(robj *val) {
     //获取counter，用了计数衰减的
     unsigned long counter = LFUDecrAndReturn(val);
-    //
+    //更新LRU的后8位，也就是LFU的counter，LFU 使用近似计数法，counter越大，使用了对数的思想
     counter = LFULogIncr(counter);
     /**
      * 获取分钟级的时间，左移8位（占高16位）
@@ -96,8 +95,8 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             server.aof_child_pid == -1 &&
             !(flags & LOOKUP_NOTOUCH))
         {
-            //跟新LFU的时钟
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+                //更新访问频次
                 updateLFU(val);
             } else {
                 //更新LRU的时钟

@@ -96,6 +96,7 @@ zskiplist *zslCreate(void) {
     zsl->length = 0;
     // header是一个权重分值为0，元素为NULL的对象
     zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
+    //创建一个64层级的空跳表
     for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {
         zsl->header->level[j].forward = NULL;
         zsl->header->level[j].span = 0;
@@ -162,7 +163,7 @@ int zslRandomLevel(void) {
  */
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     /**
-     * update 保存对应层级小于插入权重分值的前一个节点，最起码为header
+     * update 保存对应层级小于插入权重分值的前一个节点，如果没有为header
      *   新添加层级保存的是跳跃表的header指针
      * x 表示zskiplistNode节点指针
      */
@@ -213,7 +214,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
      * 后续每增加一层级的概率都是指数级上升
      */
     level = zslRandomLevel();
-    // 扩容层级，随机出来的层级> 当前层级
+    // 扩容层级（随机出来的层级> 当前最高的层级）
     if (level > zsl->level) {
         //这块增加的可能1层，也可能多层，最多（64-当前层级）
         for (i = zsl->level; i < level; i++) {
@@ -236,6 +237,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
      */
     for (i = 0; i < level; i++) {
         //链表插入节点
+        //链表插入的逻辑
         x->level[i].forward = update[i]->level[i].forward;
         /**
          *   新的层级update[i]为 header节点
@@ -436,7 +438,7 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
 
     x = zsl->header;
     //从上到下遍历所有的层级，定位到最小的元素
-    for (i = zsl->level-1; i >= 0; i--) {
+    for (i = zsl->level-1; i >= 0; i--) {m
         /* Go forward while *OUT* of range. */
         //定位最小元素所在的位置
         while (x->level[i].forward &&
@@ -1468,7 +1470,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
     /* Update the sorted set according to its encoding. */
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *eptr;
-
+        //存在，就先删后插
         if ((eptr = zzlFind(zobj->ptr,ele,&curscore)) != NULL) {
             /* NX? Return, same element already exists. */
             if (nx) {
@@ -1496,6 +1498,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
         } else if (!xx) {
             /* check if the element is too large or the list
              * becomes too long *before* executing zzlInsert. */
+            //超过长度，就将压缩链表转到了跳跃表
             if (zzlLength(zobj->ptr)+1 > server.zset_max_ziplist_entries ||
                 sdslen(ele) > server.zset_max_ziplist_value ||
                 !ziplistSafeToAdd(zobj->ptr, sdslen(ele)))
@@ -1557,6 +1560,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
         } else if (!xx) {
             ele = sdsdup(ele);
             znode = zslInsert(zs->zsl,score,ele);
+            //将元素插入到对应的hash表中
             serverAssert(dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
             *flags |= ZADD_ADDED;
             if (newscore) *newscore = score;
@@ -2896,7 +2900,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
                 ln = ln->level[0].forward;
             }
         }
-
+        //这里利用0为假，其他为真判断
         while (ln && limit--) {
             /* Abort when the node is no longer in range. */
             //如果获取到的对象权重分值，已经不在范围内了，直接break

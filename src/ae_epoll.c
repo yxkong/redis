@@ -167,6 +167,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
         int j;
 
         numevents = retval;
+        //只是遍历已就绪的事件，不是全部
         for (j = 0; j < numevents; j++) {
             int mask = 0;
             //根据事件数组的首地址+j获取对应位置的epoll_event

@@ -246,6 +246,7 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictFind(o->ptr,field);
         if (de) {
+            //如果存在，先释放，再把新的sds的指针赋值过去
             sdsfree(dictGetVal(de));
             if (flags & HASH_SET_TAKE_VALUE) {
                 dictGetVal(de) = value;
@@ -556,7 +557,7 @@ void hsetCommand(client *c) {
     // 不是hash类型，直接返回
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
-
+    //遍历所有的kv
     for (i = 2; i < c->argc; i += 2)
         // 创建hash的key val
         created += !hashTypeSet(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);

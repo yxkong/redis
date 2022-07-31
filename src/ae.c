@@ -425,6 +425,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * The function returns the number of events processed. */
 
 /**
+ * 完成了事件捕获 与执行
  * @brief 处理eventLoop里等待的 定时任务，文件事件，过期事件
  * @param eventLoop 
  * @param flags 事件类型，

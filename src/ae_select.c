@@ -101,12 +101,16 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, j, numevents = 0;
-    //将rfds 和wfds 的fd集合拷贝到_rfds和_wfds
+    /**
+     *  将rfds 和wfds 的fd集合拷贝到_rfds和_wfds
+     */
     memcpy(&state->_rfds,&state->rfds,sizeof(fd_set));
     memcpy(&state->_wfds,&state->wfds,sizeof(fd_set));
 
     /**
-     * @brief 
+     * 调用select函数，
+     *     检查&state->_rfds 数组中是否有读事件就绪
+     *     检查&state->_wfds 数组是否有写事件就绪
      *  select(int, fd_set * __restrict, fd_set * __restrict,fd_set * __restrict, struct timeval * __restrict)
      * eventLoop->maxfd+1  监听文件描述符数量
      * &state->_rfds  AE_READABLE 事件fd集合
@@ -117,6 +121,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     retval = select(eventLoop->maxfd+1,
                 &state->_rfds,&state->_wfds,NULL,tvp);
     if (retval > 0) {
+        //遍历所有的事件，需要再次遍历
         for (j = 0; j <= eventLoop->maxfd; j++) {
             int mask = 0;
             aeFileEvent *fe = &eventLoop->events[j];
@@ -129,6 +134,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                 mask |= AE_WRITABLE;
             //将监听到的事件放入到触发事件数组中
             eventLoop->fired[numevents].fd = j;
+            //标记事件类型
             eventLoop->fired[numevents].mask = mask;
             numevents++;
         }
