@@ -306,14 +306,20 @@ typedef long long ustime_t; /* microsecond time type. */
  * what to do next. */
 //主从初始状态（未激活）
 #define REPL_STATE_NONE 0 /* No active replication */
-//主从链接状态
+//从库去链接master
 #define REPL_STATE_CONNECT 1 /* Must connect to master */
+//已经链接到master
 #define REPL_STATE_CONNECTING 2 /* Connecting to master */
 /* --- Handshake states, must be ordered --- */
+//等待ping的回复
 #define REPL_STATE_RECEIVE_PONG 3 /* Wait for PING reply */
+//发起权限验证
 #define REPL_STATE_SEND_AUTH 4 /* Send AUTH to master */
+//接收权限验证结果
 #define REPL_STATE_RECEIVE_AUTH 5 /* Wait for AUTH reply */
+//发送REPLCONF 监听端口
 #define REPL_STATE_SEND_PORT 6 /* Send REPLCONF listening-port */
+//等待ji
 #define REPL_STATE_RECEIVE_PORT 7 /* Wait for REPLCONF reply */
 #define REPL_STATE_SEND_IP 8 /* Send REPLCONF ip-address */
 #define REPL_STATE_RECEIVE_IP 9 /* Wait for REPLCONF reply */
@@ -323,6 +329,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define REPL_STATE_RECEIVE_PSYNC 13 /* Wait for PSYNC reply */
 /* --- End of handshake states --- */
 #define REPL_STATE_TRANSFER 14 /* Receiving .rdb from master */
+//标记已经链接了一个master，后续就是aof实时同步了
 #define REPL_STATE_CONNECTED 15 /* Connected to master */
 
 /* State of slaves from the POV of the master. Used in client->replstate.
@@ -1256,7 +1263,7 @@ struct redisServer {
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
-    //从network中读取的大小，乐基
+    //从network中读取的大小字节
     long long stat_net_input_bytes; /* Bytes read from network. */
     long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
@@ -1401,12 +1408,12 @@ struct redisServer {
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
-    //master当前的offset
+    //master当前的偏移量
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     //最后选择的复制从库个数
     int slaveseldb;                 /* Last SELECTed DB in replication output */
-    //master ping 从库的时间周期（主从心跳频率）
+    //master ping 从库的时间周期（主从心跳频率）,几次轮训才会执行一次
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     //复制积压缓冲区
     char *repl_backlog;             /* Replication backlog for partial syncs */
@@ -1444,15 +1451,23 @@ struct redisServer {
     client *master;     /* Client that is master for this slave */
     //从库上缓存的主库信息
     client *cached_master; /* Cached master to be reused for PSYNC. */
+    //同步命令的超时时间
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     //从库的复制状态
     int repl_state;          /* Replication status if the instance is a slave */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
+    //sync期间从master读取的量
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
+    //slave到master传输socket的fd
     int repl_transfer_s;     /* Slave -> Master SYNC socket */
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
+    /**
+     *  最近一次操作的时间，用于下次周期执行的时候判断是否超时
+     *  可能是链接的时间，也可能是sync的时间
+     *  一次只有一个状态，
+     */
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
     int repl_slave_ro;          /* Slave is read only? */
@@ -1587,7 +1602,9 @@ struct redisServer {
     int lazyfree_lazy_expire;
     int lazyfree_lazy_server_del;
     /* Latency monitor */
+    //采样阈值，只有超过这个阈值的才会采样
     long long latency_monitor_threshold;
+    //延迟事件hash表
     dict *latency_events;
     /* Assert & bug reporting */
     const char *assert_failed;

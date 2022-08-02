@@ -88,6 +88,7 @@ int THPGetAnonHugePagesSize(void) {
  * of time series, each time serie is craeted on demand in order to avoid
  * having a fixed list to maintain. */
 void latencyMonitorInit(void) {
+    //初始化一个latencyTimeSeriesDictType 类型的hash表
     server.latency_events = dictCreate(&latencyTimeSeriesDictType,NULL);
 }
 
@@ -95,12 +96,20 @@ void latencyMonitorInit(void) {
  * This function is usually called via latencyAddSampleIfNeeded(), that
  * is a macro that only adds the sample if the latency is higher than
  * server.latency_monitor_threshold. */
+/**
+ * 同一个类型的事件当成hash表的一个key
+ *   然后value是latencyTimeSeries
+ * @param event
+ * @param latency
+ */
 void latencyAddSample(char *event, mstime_t latency) {
+    //从hash表里查找指定类型的延迟采样数据
     struct latencyTimeSeries *ts = dictFetchValue(server.latency_events,event);
     time_t now = time(NULL);
     int prev;
 
     /* Create the time series if it does not exist. */
+    //之前没有对应的延迟采样，就新建一个hash表存储
     if (ts == NULL) {
         ts = zmalloc(sizeof(*ts));
         ts->idx = 0;
@@ -108,18 +117,24 @@ void latencyAddSample(char *event, mstime_t latency) {
         memset(ts->samples,0,sizeof(ts->samples));
         dictAdd(server.latency_events,zstrdup(event),ts);
     }
-
+    //设置最大延迟时间
     if (latency > ts->max) ts->max = latency;
 
     /* If the previous sample is in the same second, we update our old sample
      * if this latency is > of the old one, or just return. */
+    /**
+     * 计算上一个事件的的索引
+     * 就从这块方法，可以推测出来是，循环写入，防止临界后变成负数
+     */
     prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
+    //上一个事件和现在的事件采集的时间，相同
     if (ts->samples[prev].time == now) {
+        //并且 当前执行时长大于上次的执行时长，就更新下执行时长
         if (latency > ts->samples[prev].latency)
             ts->samples[prev].latency = latency;
         return;
     }
-
+    //用的卫语句，
     ts->samples[ts->idx].time = time(NULL);
     ts->samples[ts->idx].latency = latency;
 

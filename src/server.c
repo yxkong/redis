@@ -1462,6 +1462,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. */
+    /**
+     * 主从复制，每秒执行一次
+     */
     run_with_period(1000) replicationCron();
 
     /* Run the Redis Cluster cron. */
@@ -1820,12 +1823,23 @@ void initServerConfig(void) {
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
     /* Replication related */
+    /**
+     * 主从复制相关配置
+     * slave相关配置
+     */
+     //slave存储主库的密码
     server.masterauth = NULL;
+    //slave存储主库的host
     server.masterhost = NULL;
+    //slave存储主库的端口号，默认6379
     server.masterport = 6379;
+    //slave实例化的主库链接的客户端
     server.master = NULL;
+    //slave上缓存的主库信息
     server.cached_master = NULL;
+    //slave 存储的主从同步的初始偏移量
     server.master_initial_offset = -1;
+    //slave的复制状态机
     server.repl_state = REPL_STATE_NONE;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA;
@@ -2400,7 +2414,7 @@ void initServer(void) {
     scriptingInit(1);
     //慢日志初始化
     slowlogInit();
-    //monitor初始化
+    //延迟monitor初始化
     latencyMonitorInit();
 }
 
