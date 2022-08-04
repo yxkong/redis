@@ -904,7 +904,7 @@ typedef struct client {
     /**
      * @brief 链表对象是里面的节点对象是clientReplyBlock
      * clientReplyBlock是一个数组
-     * 因为不知道缓冲区有多大，为了 
+     * 因为不知道缓冲区有多大，为了初始化的节省空间，以及后续扩容
      */
     list *reply;            /* List of reply objects to send to the client. */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
@@ -925,6 +925,7 @@ typedef struct client {
      */
     int flags;              /* Client flags: CLIENT_* macros. */
     int authenticated;      /* When requirepass is non-NULL. */
+    //复制状态
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on first ACK. */
     int repldbfd;           /* Replication DB file descriptor. */
@@ -935,11 +936,14 @@ typedef struct client {
     long long reploff;      /* Applied replication offset if this is a master. */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
+    //psync初始化偏移量
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
                                        copying this slave output buffer
                                        should use. */
     char replid[CONFIG_RUN_ID_SIZE+1]; /* Master replication ID (if master). */
+    //客户端中slave节点监听的端口号
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
+    //客户端中clave节点的ip
     char slave_ip[NET_IP_STR_LEN]; /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     multiState mstate;      /* MULTI/EXEC state */
@@ -1417,13 +1421,13 @@ struct redisServer {
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     //复制积压缓冲区
     char *repl_backlog;             /* Replication backlog for partial syncs */
-    //复制积压的大小
+    //复制积压的循环缓冲区的大小
     long long repl_backlog_size;    /* Backlog circular buffer size */
-    //backlog写入的新数据的大小
+    //backlog写入的数据的大小（现在的大小）
     long long repl_backlog_histlen; /* Backlog actual data length */
-    //下次想backlog写入的索引位置
+    //下次想backlog写入的索引位置（当前的索引位）
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,
-    //积压数据的起始位置所对应的全局主从复制的偏移量                                   that is the next byte will'll write to.*/
+    //积压数据的起始位置所对应的全局主从复制的偏移量（是循环的，所以会有起始点））                                   that is the next byte will'll write to.*/
     long long repl_backlog_off;     /* Replication "master offset" of first
                                         byte in the replication backlog buffer.*/
     //积压空间有效时间

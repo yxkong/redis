@@ -1664,7 +1664,7 @@ void processInputBuffer(client *c) {
     //从querybuf读取的长度< querybuf的长度，一直执行
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Return if clients are paused. */
-        //从库直接中断
+        //不是从库直接中断
         if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
 
         /* Immediately abort if the client is in the middle of something. */
@@ -2497,7 +2497,8 @@ void pauseClients(mstime_t end) {
  * function checks if the pause time was reached and clear it. */
 
 /**
- * @brief 客户端暂停处理 TODO
+ * @brief 客户端暂停处理
+ * 核心是：将存活的客户端放入server.unblocked_clients
  * 
  * @return int 
  */
