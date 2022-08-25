@@ -1659,7 +1659,6 @@ int processMultibulkBuffer(client *c) {
  */
 void processInputBuffer(client *c) {
     server.current_client = c;
-
     /* Keep processing while there is something in the input buffer */
     //从querybuf读取的长度< querybuf的长度，一直执行
     while(c->qb_pos < sdslen(c->querybuf)) {
@@ -1730,7 +1729,10 @@ void processInputBuffer(client *c) {
             if (processCommand(c) == C_OK) {
                 if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
                     /* Update the applied replication offset of our master. */
-                    //设置主从复制的offset
+                    /**
+                     *  更新当前客户的应用偏移量，直白些就是获取没有添加之前的缓冲区位移
+                     *  更新值是客户端的读取偏移量（已经加上了当前的命令长度）- 读取缓冲区的长度 +本次读取的长度
+                     */
                     c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
                 }
 
@@ -1769,11 +1771,12 @@ void processInputBufferAndReplicate(client *c) {
         processInputBuffer(c);
     } else {
         //master节点处理
-        //集群同步前的offset
+        //获取客户端的的应用偏移量（在没有加上当前这条命令之前的偏移量）
         size_t prev_offset = c->reploff;
         processInputBuffer(c);
-        //有数据才同步
+        //当前的客户端的应用位移-之前的应用位移，就是数据长度
         size_t applied = c->reploff - prev_offset;
+        //有数据主从复制
         if (applied) {
             replicationFeedSlavesFromMasterStream(server.slaves,
                     c->pending_querybuf, applied);
@@ -1859,6 +1862,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     sdsIncrLen(c->querybuf,nread);
     //设置客户端的最后操作时间
     c->lastinteraction = server.unixtime;
+    //将读取到的命令长度，添加到客户端的偏移量上
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
     //累计读取的长度
     server.stat_net_input_bytes += nread;

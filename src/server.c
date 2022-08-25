@@ -2890,7 +2890,7 @@ int processCommand(client *c) {
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
-    //集群处理
+    //集群处理，如果不在本机器，需要重定向
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
@@ -2908,6 +2908,7 @@ int processCommand(client *c) {
             } else {
                 flagTransaction(c);
             }
+            //重定向了，如果，没有宕机，返回给客户端一个moved,
             clusterRedirectClient(c,n,hashslot,error_code);
             return C_OK;
         }

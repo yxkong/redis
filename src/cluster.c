@@ -1359,6 +1359,11 @@ int clusterStartHandshake(char *ip, int port, int cport) {
  * Note that this function assumes that the packet is already sanity-checked
  * by the caller, not in the content of the gossip section, but in the
  * length. */
+/**
+ * 处理ping pong 报文内容，不对数据包进行健全检查
+ * @param hdr
+ * @param link
+ */
 void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     uint16_t count = ntohs(hdr->count);
     clusterMsgDataGossip *g = (clusterMsgDataGossip*) hdr->data.ping.gossip;

@@ -932,7 +932,14 @@ typedef struct client {
     off_t repldboff;        /* Replication DB file offset. */
     off_t repldbsize;       /* Replication DB file size. */
     sds replpreamble;       /* Replication DB preamble. */
+    /**
+     *  如果是master节点，表示的是当前客户端的读取复制偏移量
+     *
+     */
     long long read_reploff; /* Read replication offset if this is a master. */
+    /**
+     *  如果是master节点，表示的是当前客户端的应用偏移量
+     */
     long long reploff;      /* Applied replication offset if this is a master. */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
@@ -1412,7 +1419,7 @@ struct redisServer {
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
-    //master当前的偏移量
+    //master主从复最后位置的偏移量
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     //最后选择的复制从库个数
@@ -1421,7 +1428,7 @@ struct redisServer {
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     //复制积压缓冲区
     char *repl_backlog;             /* Replication backlog for partial syncs */
-    //复制积压的循环缓冲区的大小
+    //复制积压的循环缓冲区的大小 1mb
     long long repl_backlog_size;    /* Backlog circular buffer size */
     //backlog写入的数据的大小（现在的大小）
     long long repl_backlog_histlen; /* Backlog actual data length */

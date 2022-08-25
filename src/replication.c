@@ -79,7 +79,10 @@ char *replicationGetSlaveName(client *c) {
 }
 
 /* ---------------------------------- MASTER -------------------------------- */
-
+/**
+ * 1，master接到psync命令的时候，会创创建
+ * 2，slave 发起sysnc的时候创建
+ */
 void createReplicationBacklog(void) {
     serverAssert(server.repl_backlog == NULL);
     server.repl_backlog = zmalloc(server.repl_backlog_size);
@@ -130,21 +133,24 @@ void freeReplicationBacklog(void) {
  * server.master_repl_offset, because there is no case where we want to feed
  * the backlog without incrementing the offset. */
 /**
- * 添加数据到复制背压队列server.repl_backlog，此队列会做主从同步
- *
+ * 添加数据到复制背压队列server.repl_backlog，此队列会做增量同步
  * @param ptr
  * @param len
  */
 void feedReplicationBacklog(void *ptr, size_t len) {
     unsigned char *p = ptr;
-
+    //表示最后的位置
     server.master_repl_offset += len;
 
     /* This is a circular buffer, so write as much data we can at every
      * iteration and rewind the "idx" index if we reach the limit. */
+    /**
+     *  背压是一个循环缓冲区，默认1mb大小
+     */
     while(len) {
         size_t thislen = server.repl_backlog_size - server.repl_backlog_idx;
         if (thislen > len) thislen = len;
+        //将当前的命令复制到背压上
         memcpy(server.repl_backlog+server.repl_backlog_idx,p,thislen);
         server.repl_backlog_idx += thislen;
         if (server.repl_backlog_idx == server.repl_backlog_size)
@@ -308,6 +314,12 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 /* This function is used in order to proxy what we receive from our master
  * to our sub-slaves. */
 #include <ctype.h>
+/**
+ * 从master的流里，复制并传输给所有的slaves节点
+ * @param slaves 所有的slave节点
+ * @param buf  当前客户端的缓冲区
+ * @param buflen 长度
+ */
 void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen) {
     listNode *ln;
     listIter li;
@@ -321,14 +333,17 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
         }
         printf("\n");
     }
-
+    //背压，默认为null
     if (server.repl_backlog) feedReplicationBacklog(buf,buflen);
+    //遍历所有的从节点，并投递过去
     listRewind(slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
         /* Don't feed slaves that are still waiting for BGSAVE to start */
+        //不给slave节点是等待RDB文件的客户投递
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
+        //实时投递过去
         addReplyString(slave,buf,buflen);
     }
 }
@@ -746,6 +761,7 @@ void syncCommand(client *c) {
     listAddNodeTail(server.slaves,c);
 
     /* Create the replication backlog if needed. */
+    //创建背压，用于增量同步
     if (listLength(server.slaves) == 1 && server.repl_backlog == NULL) {
         /* When we create the backlog from scratch, we always use a new
          * replication ID and clear the ID2, since there is no valid
