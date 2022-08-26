@@ -390,9 +390,9 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
 /* Feed the slave 'c' with the replication backlog starting from the
  * specified 'offset' up to the end of the backlog. */
 /**
- * 添加到server上主从复制的缓存区
- * @param c
- * @param offset
+ *将背压里的数据添加到slave 客户端的缓冲区里
+ * @param c master 持有的slave 客户端（发起replicaof命令的客户端）
+ * @param offset 开始的偏移量
  * @return
  */
 long long addReplyReplicationBacklog(client *c, long long offset) {
@@ -504,8 +504,13 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
  *
  * On success return C_OK, otherwise C_ERR is returned and we proceed
  * with the usual full resync. */
+/**
+ * 决定是全量还是增量
+ * @param c
+ * @return
+ */
 int masterTryPartialResynchronization(client *c) {
-    //psync偏移量和大小
+    //psync 传递过来的偏移量和大小
     long long psync_offset, psync_len;
     char *master_replid = c->argv[1]->ptr;
     char buf[128];
@@ -514,7 +519,7 @@ int masterTryPartialResynchronization(client *c) {
     /* Parse the replication offset asked by the slave. Go to full sync
      * on parse error: this should never happen but we try to handle
      * it in a robust way compared to aborting. */
-    //解析参数中的偏移量
+    //解析psync 命令传递过来的偏移量
     if (getLongLongFromObjectOrReply(c,c->argv[2],&psync_offset,NULL) !=
        C_OK) goto need_full_resync;
 
@@ -585,6 +590,7 @@ int masterTryPartialResynchronization(client *c) {
         freeClientAsync(c);
         return C_OK;
     }
+    //将背压里的数据添加到slave 客户端的缓冲区里
     psync_len = addReplyReplicationBacklog(c,psync_offset);
     serverLog(LL_NOTICE,
         "Partial resynchronization request from %s accepted. Sending %lld bytes of backlog starting from offset %lld.",
@@ -727,6 +733,9 @@ void syncCommand(client *c) {
      *
      * So the slave knows the new replid and offset to try a PSYNC later
      * if the connection with the master is lost. */
+    /**
+     * psync 命令处理，决定是全量复制还是增量复制
+     */
     if (!strcasecmp(c->argv[0]->ptr,"psync")) {
         if (masterTryPartialResynchronization(c) == C_OK) {
             server.stat_sync_partial_ok++;
@@ -1605,8 +1614,8 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
  *  salve向master发送
  *  发起同步后，第一次 返回PSYNC_WRITE_ERROR 或PSYNC_WAIT_REPLY
  *
- * @param fd
- * @param read_reply
+ * @param fd master对应的额socket
+ * @param read_reply  是否读取恢复，0 否，1 是
  * @return
  */
 int slaveTryPartialResynchronization(int fd, int read_reply) {
@@ -1626,6 +1635,10 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         if (server.cached_master) {
             //获取缓存的主库同步id
             psync_replid = server.cached_master->replid;
+            /**
+             * server.cached_master->reploff+1 为之前同步的master的偏移量
+             * psync_offset 将之前的偏移量读入到psync_offset 作为新的起始的偏移量
+             */
             snprintf(psync_offset,sizeof(psync_offset),"%lld", server.cached_master->reploff+1);
             serverLog(LL_NOTICE,"Trying a partial resynchronization (request %s:%s).", psync_replid, psync_offset);
         } else {
@@ -1635,7 +1648,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         }
 
         /* Issue the PSYNC command */
-        //发送psync同步命令给主库
+        //发送psync同步命令给主库  这个时候，会携带当前slave的已经同步的偏移量 psync_offset
         reply = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"PSYNC",psync_replid,psync_offset,NULL);
         if (reply != NULL) {
             serverLog(LL_WARNING,"Unable to send PSYNC to master: %s",reply);
@@ -1738,6 +1751,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
 
         /* Setup the replication to continue. */
         sdsfree(reply);
+        //增量同步
         replicationResurrectCachedMaster(fd);
 
         /* If this instance was restarted and we read the metadata to
@@ -1783,6 +1797,16 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
 
 /* This handler fires when the non blocking connect was able to
  * establish a connection with the master. */
+
+/**
+ * 同步master
+ *   各类状态的流转的处理
+ *   从网络缓冲区里同步RDB文件
+ * @param el 事件循环体
+ * @param fd 对应master的 socket 链接
+ * @param privdata
+ * @param mask
+ */
 void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     char tmpfile[256], *err = NULL;
     int dfd = -1, maxtries = 5;
@@ -1968,7 +1992,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
      * and the global offset, to try a partial resync at the next
      * reconnection attempt. */
     if (server.repl_state == REPL_STATE_SEND_PSYNC) {
-        //发起同步，异常就直接中断了
+        //发起PSYNC命令，异常就直接中断了
         if (slaveTryPartialResynchronization(fd,0) == PSYNC_WRITE_ERROR) {
             err = sdsnew("Write error sending the PSYNC command.");
             goto write_error;
@@ -1985,7 +2009,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
                              server.repl_state);
         goto error;
     }
-
+    //读取psync中的结果
     psync_result = slaveTryPartialResynchronization(fd,1);
     //下次循环继续执行
     if (psync_result == PSYNC_WAIT_REPLY) return; /* Try again later... */
@@ -2302,6 +2326,10 @@ void replicaofCommand(client *c) {
         }
         /* There was no previous master or the user specified a different one,
          * we can continue. */
+        /**
+         * 这个方法里主要是设置master的host和port
+         * 如果是主从切换，会断掉所有的slave，并清除所有的阻塞方法
+         */
         replicationSetMaster(c->argv[1]->ptr, port);
         sds client = catClientInfoString(sdsempty(),c);
         serverLog(LL_NOTICE,"REPLICAOF %s:%d enabled (user request from '%s')",
@@ -2488,7 +2516,7 @@ void replicationDiscardCachedMaster(void) {
 /**
  * 转换master
  * 从master接收数据处理
- * @param newfd
+ * @param newfd 还是master的socket
  */
 void replicationResurrectCachedMaster(int newfd) {
     server.master = server.cached_master;
@@ -2505,6 +2533,7 @@ void replicationResurrectCachedMaster(int newfd) {
     //使用处理器readQueryFromClient创建一个FileEvent
     if (aeCreateFileEvent(server.el, newfd, AE_READABLE,
                           readQueryFromClient, server.master)) {
+        //通过readQueryFromClient 重新从master里读取数据
         serverLog(LL_WARNING,"Error resurrecting the cached master, impossible to add the readable handler: %s", strerror(errno));
         freeClientAsync(server.master); /* Close ASAP. */
     }
@@ -2788,7 +2817,7 @@ long long replicationGetSlaveOffset(void) {
 
 /* Replication cron function, called 1 time per second. */
 /**
- * 主从复制周期任务，每秒调用一次（不阻塞的情况下）
+ * 主从复制周期任务，10次轮训调用一次
  * 状态机驱动
  */
 void replicationCron(void) {
@@ -2945,7 +2974,7 @@ void replicationCron(void) {
         server.repl_backlog && server.masterhost == NULL)
     {
         time_t idle = server.unixtime - server.repl_no_slaves_since;
-
+        //判断下最后一次主从到现在的时间，超过了这个配置时间，就直接释放
         if (idle > server.repl_backlog_time_limit) {
             /* When we free the backlog, we always use a new
              * replication ID and clear the ID2. This is needed
@@ -2964,6 +2993,7 @@ void replicationCron(void) {
              *    because we received writes. */
             changeReplicationId();
             clearReplicationId2();
+            //释放积压缓冲区
             freeReplicationBacklog();
             serverLog(LL_NOTICE,
                 "Replication backlog freed after %d seconds "

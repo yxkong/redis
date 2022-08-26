@@ -1181,7 +1181,7 @@ struct redisServer {
     //pid的文件
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
-    //定时任务跑的次数
+    //定时任务跑的次数,每进一次定时，自增1
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     int sentinel_mode;          /* True if this instance is a Sentinel. */
@@ -1421,6 +1421,7 @@ struct redisServer {
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
     //master主从复最后位置的偏移量
     long long master_repl_offset;   /* My current replication offset */
+    //接续主从复制的偏移量
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     //最后选择的复制从库个数
     int slaveseldb;                 /* Last SELECTed DB in replication output */
@@ -1433,13 +1434,13 @@ struct redisServer {
     //backlog写入的数据的大小（现在的大小）
     long long repl_backlog_histlen; /* Backlog actual data length */
     //下次想backlog写入的索引位置（当前的索引位）
-    long long repl_backlog_idx;     /* Backlog circular buffer current offset,
-    //积压数据的起始位置所对应的全局主从复制的偏移量（是循环的，所以会有起始点））                                   that is the next byte will'll write to.*/
+    long long repl_backlog_idx;     /* Backlog circular buffer current offset,that is the next byte will'll write to.*/
+    //积压数据的起始位置所对应的全局主从复制的偏移量（是循环的，所以会有起始点））
     long long repl_backlog_off;     /* Replication "master offset" of first
                                         byte in the replication backlog buffer.*/
     //积压空间有效时间
-    time_t repl_backlog_time_limit; /* Time without slaves after the backlog
-                                       gets released. */
+    time_t repl_backlog_time_limit; /* Time without slaves after the backlog gets released. */
+    //最后一次主从同步的时间
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
                                        Only valid if server.slaves len is 0. */
     //最小从库写入数量
@@ -1458,9 +1459,9 @@ struct redisServer {
     int masterport;                 /* Port of master */
     //主从超时时间
     int repl_timeout;               /* Timeout after N seconds of master idle */
-    //从节点持有的master的客户端
+    //从节点现有的的master的客户端
     client *master;     /* Client that is master for this slave */
-    //从库上缓存的主库信息
+    //从库上缓存的上一个主库信息
     client *cached_master; /* Cached master to be reused for PSYNC. */
     //同步命令的超时时间
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
@@ -1483,6 +1484,7 @@ struct redisServer {
     int repl_serve_stale_data; /* Serve stale data when link is down? */
     int repl_slave_ro;          /* Slave is read only? */
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
+    // 主从复制down掉的时间
     time_t repl_down_since; /* Unix time at which link with master went down */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
