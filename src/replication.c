@@ -101,6 +101,10 @@ void createReplicationBacklog(void) {
  * it contains the same data as the previous one (possibly less data, but
  * the most recent bytes, or the same data and more free space in case the
  * buffer is enlarged). */
+/**
+ * 重置背压缓冲区
+ * @param newsize
+ */
 void resizeReplicationBacklog(long long newsize) {
     if (newsize < CONFIG_REPL_BACKLOG_MIN_SIZE)
         newsize = CONFIG_REPL_BACKLOG_MIN_SIZE;
@@ -121,7 +125,9 @@ void resizeReplicationBacklog(long long newsize) {
         server.repl_backlog_off = server.master_repl_offset+1;
     }
 }
-
+/**
+ * 释放主从复制背压缓冲区
+ */
 void freeReplicationBacklog(void) {
     serverAssert(listLength(server.slaves) == 0);
     zfree(server.repl_backlog);
@@ -194,6 +200,7 @@ void feedReplicationBacklogWithObject(robj *o) {
  * stream. Instead if the instance is a slave and has sub-slaves attached,
  * we use replicationFeedSlavesFromMaster() */
 /**
+ * 命令传播
  * 将写命令传播到slave端，
  *  master服务对应的客户端接收到的命令来创建伏直流
  * @param slaves 从库链表
@@ -227,6 +234,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     /**
      * 正常情况下应该相等
      * 只有主从异常时才会不相等，而且从调用到这，间隔时间可以忽略不计
+     *
      */
     if (server.slaveseldb != dictid) {
         robj *selectcmd;
@@ -236,7 +244,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             selectcmd = shared.select[dictid];
         } else {
             int dictid_len;
-
+            //强行添加select
             dictid_len = ll2string(llstr,sizeof(llstr),dictid);
             selectcmd = createObject(OBJ_STRING,
                 sdscatprintf(sdsempty(),
@@ -245,7 +253,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         /* Add the SELECT command into the backlog. */
-        //
+        // 添加到背压
         if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
 
         /* Send it to slaves. */
@@ -341,9 +349,9 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
         client *slave = ln->value;
 
         /* Don't feed slaves that are still waiting for BGSAVE to start */
-        //不给slave节点是等待RDB文件的客户投递
+        //进入psync 就改成了这个状态 SLAVE_STATE_WAIT_BGSAVE_START
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
-        //实时投递过去
+        //将命令写入到客户端的buf队列里，等到下一次beforeSleep 通过handleClientsWithPendingWrites
         addReplyString(slave,buf,buflen);
     }
 }
@@ -438,9 +446,7 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
     len = server.repl_backlog_histlen - skip;
     serverLog(LL_DEBUG, "[PSYNC] Reply total length: %lld", len);
     while(len) {
-        long long thislen =
-            ((server.repl_backlog_size - j) < len) ?
-            (server.repl_backlog_size - j) : len;
+        long long thislen = ((server.repl_backlog_size - j) < len) ? (server.repl_backlog_size - j) : len;
 
         serverLog(LL_DEBUG, "[PSYNC] addReply() length: %lld", thislen);
         //复制指定的长度的数据恢复回去
@@ -455,6 +461,10 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
  * from the slave. The returned value is only valid immediately after
  * the BGSAVE process started and before executing any other command
  * from clients. */
+/**
+ * master接收到psync命令的时候，返回偏移量
+ * @return
+ */
 long long getPsyncInitialOffset(void) {
     return server.master_repl_offset;
 }
@@ -475,11 +485,19 @@ long long getPsyncInitialOffset(void) {
  * Normally this function should be called immediately after a successful
  * BGSAVE for replication was started, or when there is one already in
  * progress that we attached our slave to. */
+/**
+ * 这个函数通常在bgsave复制启动后，或者已经bgsave的时候，一个新的slave进来的时候调用
+ *
+ * @param slave
+ * @param offset
+ * @return
+ */
 int replicationSetupSlaveForFullResync(client *slave, long long offset) {
     char buf[128];
     int buflen;
-
+    //设置psync时候的master节点的偏移量
     slave->psync_initial_offset = offset;
+    //设置等待bgsave结束
     slave->replstate = SLAVE_STATE_WAIT_BGSAVE_END;
     /* We are going to accumulate the incremental changes for this
      * slave as well. Set slaveseldb to -1 in order to force to re-emit
@@ -489,6 +507,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
     /* Don't send this reply to slaves that approached us with
      * the old SYNC command. */
     if (!(slave->flags & CLIENT_PRE_PSYNC)) {
+        //回复一个FULLRESYNC 命令
         buflen = snprintf(buf,sizeof(buf),"+FULLRESYNC %s %lld\r\n",
                           server.replid,offset);
         if (write(slave->fd,buf,buflen) != buflen) {
@@ -574,6 +593,7 @@ int masterTryPartialResynchronization(client *c) {
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
+    //设置slave的主从复制状态是SLAVE_STATE_ONLINE
     c->replstate = SLAVE_STATE_ONLINE;
     c->repl_ack_time = server.unixtime;
     c->repl_put_online_on_ack = 0;
@@ -629,6 +649,11 @@ need_full_resync:
  *    started.
  *
  * Returns C_OK on success or C_ERR otherwise. */
+/**
+ * 为主从复制开启bgsave
+ * @param mincapa
+ * @return
+ */
 int startBgsaveForReplication(int mincapa) {
     int retval;
     int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF);
@@ -706,7 +731,7 @@ void syncCommand(client *c) {
 
     /* Refuse SYNC requests if we are a slave but the link with our master
      * is not ok... */
-    //必须是master才能处理
+    //必须是master并且已经连接上了才能处理
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED) {
         addReplySds(c,sdsnew("-NOMASTERLINK Can't SYNC while not connected with my master\r\n"));
         return;
@@ -737,6 +762,7 @@ void syncCommand(client *c) {
      * psync 命令处理，决定是全量复制还是增量复制
      */
     if (!strcasecmp(c->argv[0]->ptr,"psync")) {
+        //增量同步，还是全量同步判断逻辑
         if (masterTryPartialResynchronization(c) == C_OK) {
             server.stat_sync_partial_ok++;
             return; /* No full resync needed, return. */
@@ -761,6 +787,7 @@ void syncCommand(client *c) {
 
     /* Setup the slave as one waiting for BGSAVE to start. The following code
      * paths will change the state if we handle the slave differently. */
+    //将slave设置为等待BGSAVE启动,在全量复制的时候
     c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
     if (server.repl_disable_tcp_nodelay)
         anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
@@ -779,8 +806,16 @@ void syncCommand(client *c) {
         clearReplicationId2();
         createReplicationBacklog();
     }
+    /**
+     * 一共有三种情况
+     *   1，已经在进行bgsave  并且是磁盘存储的
+     *   2，已经在进行bgsave，并且是无盘存储（直接通过socket传输给slave）
+     *   3，没有进行bgsave,需要创建
+     */
 
-    /* CASE 1: BGSAVE is in progress, with disk target. */
+    /* CASE 1: BGSAVE is in progress, with disk target.
+     *  有盘复制
+     * */
     if (server.rdb_child_pid != -1 &&
         server.rdb_child_type == RDB_CHILD_TYPE_DISK)
     {
@@ -798,6 +833,7 @@ void syncCommand(client *c) {
         }
         /* To attach this slave, we check that it has at least all the
          * capabilities of the slave that triggered the current BGSAVE. */
+        //如果已经有slave节点在等待bgsave的时候，直接使用现有的
         if (ln && ((c->slave_capa & slave->slave_capa) == slave->slave_capa)) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer. */
@@ -810,7 +846,9 @@ void syncCommand(client *c) {
             serverLog(LL_NOTICE,"Can't attach the replica to the current BGSAVE. Waiting for next BGSAVE for SYNC");
         }
 
-    /* CASE 2: BGSAVE is in progress, with socket target. */
+    /* CASE 2: BGSAVE is in progress, with socket target.
+     * 无盘复制
+     * */
     } else if (server.rdb_child_pid != -1 &&
                server.rdb_child_type == RDB_CHILD_TYPE_SOCKET)
     {
@@ -825,9 +863,11 @@ void syncCommand(client *c) {
             /* Diskless replication RDB child is created inside
              * replicationCron() since we want to delay its start a
              * few seconds to wait for more slaves to arrive. */
+            //无磁盘复制RDB子进程是在replicationCron()中创建的,下次serverCron执行replicationCron的时候，
             if (server.repl_diskless_sync_delay)
                 serverLog(LL_NOTICE,"Delay next BGSAVE for diskless SYNC");
         } else {
+            //设置的是磁盘复制，不支持无盘复制，开始bgsave
             /* Target is disk (or the slave is not capable of supporting
              * diskless replication) and we don't have a BGSAVE in progress,
              * let's start one. */
@@ -1256,6 +1296,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* If repl_transfer_size == -1 we still have to read the bulk length
      * from the master reply. */
+    /**
+     *等于-1的时候，从fd中读取
+     */
     if (server.repl_transfer_size == -1) {
         if (syncReadLine(fd,buf,1024,server.repl_syncio_timeout*1000) == -1) {
             serverLog(LL_WARNING,
@@ -1263,7 +1306,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 strerror(errno));
             goto error;
         }
-
+        //异常判断
         if (buf[0] == '-') {
             serverLog(LL_WARNING,
                 "MASTER aborted replication with an error: %s",
@@ -1289,7 +1332,11 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
          *
          * At the end of the file the announced delimiter is transmitted. The
          * delimiter is long and random enough that the probability of a
-         * collision with the actual file content can be ignored. */
+         * collision with the actual file content can be ignored.
+         *
+         * 无盘复制处理
+         * 以”$EOF:\r\n”开头，以”“结尾。开头和结尾中的内容相同，都是40字节长的
+         * */
         if (strncmp(buf+1,"EOF:",4) == 0 && strlen(buf+5) >= CONFIG_RUN_ID_SIZE) {
             usemark = 1;
             memcpy(eofmark,buf+5,CONFIG_RUN_ID_SIZE);
@@ -1301,6 +1348,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 "MASTER <-> REPLICA sync: receiving streamed RDB from master");
         } else {
             usemark = 0;
+            //传输文件的大小
             server.repl_transfer_size = strtol(buf+1,NULL,10);
             serverLog(LL_NOTICE,
                 "MASTER <-> REPLICA sync: receiving %lld bytes from master",
@@ -1394,6 +1442,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 "Killing process %ld and removing its temp file to avoid "
                 "any race",
                     (long) server.rdb_child_pid);
+            //直接把后台的rdb进程kill调
             kill(server.rdb_child_pid,SIGUSR1);
             rdbRemoveTempFile(server.rdb_child_pid);
         }
@@ -1440,6 +1489,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             cancelReplicationHandshake();
             /* Re-enable the AOF if we disabled it earlier, in order to restore
              * the original configuration. */
+            //重置aof
             if (aof_is_enabled) restartAOFAfterSYNC();
             return;
         }
@@ -1463,6 +1513,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
          * accumulate the backlog regardless of the fact they have sub-slaves
          * or not, in order to behave correctly if they are promoted to
          * masters after a failover. */
+        /**
+         * 不管slave有没有子节点，都需要开启背压，防止主从切换后，进行增量同步
+         */
         if (server.repl_backlog == NULL) createReplicationBacklog();
 
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
@@ -1637,18 +1690,25 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
             psync_replid = server.cached_master->replid;
             /**
              * server.cached_master->reploff+1 为之前同步的master的偏移量
-             * psync_offset 将之前的偏移量读入到psync_offset 作为新的起始的偏移量
+             * psync runid _offset 将之前的偏移量读入到psync_offset 作为新的起始的偏移量
              */
             snprintf(psync_offset,sizeof(psync_offset),"%lld", server.cached_master->reploff+1);
             serverLog(LL_NOTICE,"Trying a partial resynchronization (request %s:%s).", psync_replid, psync_offset);
         } else {
             serverLog(LL_NOTICE,"Partial resynchronization not possible (no cached master)");
+            //设置psync_replid 为？
             psync_replid = "?";
+            // 设置psync_offset 为-1
             memcpy(psync_offset,"-1",3);
         }
 
         /* Issue the PSYNC command */
-        //发送psync同步命令给主库  这个时候，会携带当前slave的已经同步的偏移量 psync_offset
+        /**
+         * 发送psync同步命令给主库  这个时候，会携带当前slave的已经同步的偏移量 psync_offset
+         *    psync ? -1  全量复制
+         *    psync serverid psync_offset 指定偏移量
+         */
+
         reply = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"PSYNC",psync_replid,psync_offset,NULL);
         if (reply != NULL) {
             serverLog(LL_WARNING,"Unable to send PSYNC to master: %s",reply);
@@ -1662,7 +1722,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
     }
 
     /* Reading half */
-    //从fd上读取主库的响应
+    //同步从fd上读取主库的响应
     reply = sendSynchronousCommand(SYNC_CMD_READ,fd,NULL);
     if (sdslen(reply) == 0) {
         /* The master may send empty newlines after it receives PSYNC
@@ -1678,7 +1738,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
 
         /* FULL RESYNC, parse the reply in order to extract the run id
          * and the replication offset. */
-        //全量同步
+        //解析出来全量复制  返回的 replid 和 返回的offset
         replid = strchr(reply,' ');
         if (replid) {
             replid++;
@@ -1694,6 +1754,10 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
              * replid to make sure next PSYNCs will fail. */
             memset(server.master_replid,0,CONFIG_RUN_ID_SIZE+1);
         } else {
+            /**
+             * 设置从哪个server 复制的数据
+             * 设置偏移量，默认是10，master会把bgsave之前的偏移量传递过来
+             */
             memcpy(server.master_replid, replid, offset-replid-1);
             server.master_replid[CONFIG_RUN_ID_SIZE] = '\0';
             server.master_initial_offset = strtoll(offset,NULL,10);
@@ -1757,6 +1821,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         /* If this instance was restarted and we read the metadata to
          * PSYNC from the persistence file, our replication backlog could
          * be still not initialized. Create it. */
+        //创建这个背压，主要是给该从库的从库使用
         if (server.repl_backlog == NULL) createReplicationBacklog();
         //返回增量同步
         return PSYNC_CONTINUE;
@@ -2514,7 +2579,7 @@ void replicationDiscardCachedMaster(void) {
  * so the stream of data that we'll receive will start from were this
  * master left. */
 /**
- * 转换master
+ * 转换master，将缓存的master替换为新的master，接收数据从新主机开始
  * 从master接收数据处理
  * @param newfd 还是master的socket
  */
@@ -2555,6 +2620,7 @@ void replicationResurrectCachedMaster(int newfd) {
 /* This function counts the number of slaves with lag <= min-slaves-max-lag.
  * If the option is active, the server will prevent writes if there are not
  * enough connected slaves with the specified lag (or less). */
+//刷新看还有多少客户端是可用的
 void refreshGoodSlavesCount(void) {
     listIter li;
     listNode *ln;
@@ -2906,7 +2972,7 @@ void replicationCron(void) {
 
         if (!manual_failover_in_progress) {
             ping_argv[0] = createStringObject("PING",4);
-            //增量同步数据
+            //命令传播
             replicationFeedSlaves(server.slaves, server.slaveseldb,
                 ping_argv, 1);
             decrRefCount(ping_argv[0]);
@@ -2970,6 +3036,9 @@ void replicationCron(void) {
      * without sub-slaves attached should still accumulate data into the
      * backlog, in order to reply to PSYNC queries if they are turned into
      * masters after a failover. */
+    /**
+     * 该节点没有从节点，并且背压有有效期并且背压存在，并且是主库
+     */
     if (listLength(server.slaves) == 0 && server.repl_backlog_time_limit &&
         server.repl_backlog && server.masterhost == NULL)
     {

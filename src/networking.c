@@ -406,6 +406,7 @@ void addReplySds(client *c, sds s) {
  * _addReplyStringToList() if we fail to extend the existing tail object
  * in the list of objects. */
 void addReplyString(client *c, const char *s, size_t len) {
+    //把客户端加入server.clients_pending_write 加入之前会各种判断
     if (prepareClientToWrite(c) != C_OK) return;
     if (_addReplyToBuffer(c,s,len) != C_OK)
         _addReplyStringToList(c,s,len);
@@ -1222,7 +1223,7 @@ int handleClientsWithPendingWrites(void) {
     listIter li;
     listNode *ln;
     int processed = listLength(server.clients_pending_write);
-
+    //遍历所有待回写的客户端
     listRewind(server.clients_pending_write,&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
@@ -1240,6 +1241,7 @@ int handleClientsWithPendingWrites(void) {
         //继续往下走表示回复缓冲区有内容，要写回
         /* If after the synchronous writes above we still have data to
          * output to the client, we need to install the writable handler. */
+        //客户端有数据，就要回写
         if (clientHasPendingReplies(c)) {
             int ae_flags = AE_WRITABLE;
             /* For the fsync=always policy, we want that a given FD is never
@@ -1663,7 +1665,7 @@ void processInputBuffer(client *c) {
     //从querybuf读取的长度< querybuf的长度，一直执行
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Return if clients are paused. */
-        //不是从库直接中断
+        //不是从库直接中断 并且 clients_paused
         if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
 
         /* Immediately abort if the client is in the middle of something. */

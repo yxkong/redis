@@ -1572,6 +1572,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Handle writes with pending output buffers. */
     //处理等待的回写队列（命令执行成功，已经写入：server.clients_pending_write）
+    /**
+     * 比如，主从复制写入的时候，是先写到client上对应的队列里
+     * 然后在before sleep里将对应的client上的
+     */
     handleClientsWithPendingWrites();
 
     /* Before we are going to sleep, let the threads access the dataset by
@@ -2790,7 +2794,10 @@ void call(client *c, int flags) {
 
         /* Call propagate() only if at least one of AOF / replication
          * propagation is needed. Note that modules commands handle replication
-         * in an explicit way, so we never replicate them automatically. */
+         * in an explicit way, so we never replicate them automatically.
+         *
+         * 命令传播
+         * */
         if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
             propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
     }

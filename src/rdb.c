@@ -1302,7 +1302,7 @@ werr:
  * This way processes receiving the payload can understand when it ends
  * without doing any processing of the content. */
 /**
- * rdb网络发送
+ * rdb网络发送(无盘复制，以$EOF:\r\n 开头)
  *  先生成一个40位的16进制随机字符串   xxxxx
  *  1，写一个 $EOF:xxxxx 表示这次rdb以xxxxx 结尾，
  *  换行\r\n
@@ -2368,6 +2368,11 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
 /* A background saving child (BGSAVE) terminated its work. Handle this.
  * This function covers the case of RDB -> Salves socket transfers for
  * diskless replication. */
+/**
+ * RDB 子进程终止后，调用这个函数，主要用户无盘复制同步RDB给salves
+ * @param exitcode
+ * @param bysignal
+ */
 void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     uint64_t *ok_slaves;
 
@@ -2424,7 +2429,9 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
-
+        /**
+         * 遍历所有的从节点，找到 主从复制状态是 SLAVE_STATE_WAIT_BGSAVE_END的从节点
+         */
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             uint64_t j;
             int errorcode = 0;
@@ -2522,10 +2529,10 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     numfds = 0;
 
     listRewind(server.slaves,&li);
-    //遍历所有的从库
+    //遍历所有的从库，添加到clientids中
     while((ln = listNext(&li))) {
         client *slave = ln->value;
-        //将从库的同步状态为：SLAVE_STATE_WAIT_BGSAVE_START的加入到新的变量里（）
+        //如果从库的同步状态为：SLAVE_STATE_WAIT_BGSAVE_START
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
             clientids[numfds] = slave->id;
             fds[numfds++] = slave->fd;
@@ -2534,6 +2541,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
              * We'll restore it when the children returns (since duped socket
              * will share the O_NONBLOCK attribute with the parent). */
             anetBlock(NULL,slave->fd);
+            //设置发送超时时间
             anetSendTimeout(NULL,slave->fd,server.repl_timeout*1000);
         }
     }
@@ -2546,7 +2554,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
      * fork 进程，和磁盘化的rdb差不多
      */
     if ((childpid = fork()) == 0) {
-        /* Child */
+        /* Child   子进程处理*/
         int retval;
         rio slave_sockets;
         //初始化rio
@@ -2616,7 +2624,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         rioFreeFdset(&slave_sockets);
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
-        /* Parent */
+        /* Parent  父进程处理 */
         if (childpid == -1) {
             serverLog(LL_WARNING,"Can't save in background: fork: %s",
                 strerror(errno));
@@ -2631,6 +2639,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
 
                 for (j = 0; j < numfds; j++) {
                     if (slave->id == clientids[j]) {
+                        //把所有的客户端的状态改成  SLAVE_STATE_WAIT_BGSAVE_START
                         slave->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
                         break;
                     }

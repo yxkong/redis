@@ -234,14 +234,19 @@ typedef long long ustime_t; /* microsecond time type. */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
 /* Client flags */
-//从节点常量
+//从节点客户端
 #define CLIENT_SLAVE (1<<0)   /* This client is a slave server */
-//主节点常量
+//主节点客户端
 #define CLIENT_MASTER (1<<1)  /* This client is a master server */
+// slave monitor 客户端
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
+//事务客户端
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
+//阻塞客户端
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
+//监听key变更客户端
 #define CLIENT_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
+//写完reply后关闭状态
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
 #define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
                                   server.unblocked_clients */
@@ -329,21 +334,23 @@ typedef long long ustime_t; /* microsecond time type. */
 #define REPL_STATE_RECEIVE_PSYNC 13 /* Wait for PSYNC reply */
 /* --- End of handshake states --- */
 #define REPL_STATE_TRANSFER 14 /* Receiving .rdb from master */
-//标记已经链接了一个master，后续就是aof实时同步了
+//标记已经链接了一个master
 #define REPL_STATE_CONNECTED 15 /* Connected to master */
 
 /* State of slaves from the POV of the master. Used in client->replstate.
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
  * to start the next background saving in order to send updates to it. */
-//从节点需要重新生成一个rdb文件
+//从节点需要等待重新生成一个rdb文件
 #define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 
 /* Slave capabilities. */
+//
 #define SLAVE_CAPA_NONE 0
+// 无盘复制
 #define SLAVE_CAPA_EOF (1<<0)    /* Can parse the RDB EOF streaming format. */
 #define SLAVE_CAPA_PSYNC2 (1<<1) /* Supports PSYNC2 protocol. */
 
@@ -943,7 +950,7 @@ typedef struct client {
     long long reploff;      /* Applied replication offset if this is a master. */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
-    //psync初始化偏移量
+    //psync初始化偏移量，其他的slave节点再全量同步，就会使用
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
                                        copying this slave output buffer
                                        should use. */
@@ -1274,7 +1281,7 @@ struct redisServer {
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
-    //从network中读取的大小字节
+    //从network中读取的大小,单位字节
     long long stat_net_input_bytes; /* Bytes read from network. */
     long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
@@ -1417,7 +1424,9 @@ struct redisServer {
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */
     /* Replication (master) */
+    //当前的replid
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
+    //接续之前的replid
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
     //master主从复最后位置的偏移量
     long long master_repl_offset;   /* My current replication offset */
@@ -1473,6 +1482,7 @@ struct redisServer {
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
     //slave到master传输socket的fd
     int repl_transfer_s;     /* Slave -> Master SYNC socket */
+    //slave创建的接收rdb文件的文件描述符
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
     /**
@@ -1494,6 +1504,7 @@ struct redisServer {
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
     char master_replid[CONFIG_RUN_ID_SIZE+1];  /* Master PSYNC runid. */
+    //master psync时候的offset
     long long master_initial_offset;           /* Master PSYNC offset. */
     int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
     /* Replication script cache. */
