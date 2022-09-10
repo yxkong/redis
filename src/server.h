@@ -234,17 +234,22 @@ typedef long long ustime_t; /* microsecond time type. */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
 /* Client flags */
-//从节点客户端
+/**
+ * 客户端标识，使用位运算,类似于权限系统的设计，每个操作都是2的幂次方，然后所有的角色可以组合到一起
+ *
+ * 00000000 00000000 00000000 00000001
+ */
+//从节点客户端  1
 #define CLIENT_SLAVE (1<<0)   /* This client is a slave server */
-//主节点客户端
+//主节点客户端 2
 #define CLIENT_MASTER (1<<1)  /* This client is a master server */
-// slave monitor 客户端
+// slave monitor 客户端,  4
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
-//事务客户端
+//事务客户端 8
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
-//阻塞客户端
+//阻塞客户端 32
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
-//监听key变更客户端
+//监听key变更客户端 64
 #define CLIENT_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
 //写完reply后关闭状态
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
@@ -262,6 +267,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CLIENT_READONLY (1<<17)    /* Cluster client is in read-only state. */
 #define CLIENT_PUBSUB (1<<18)      /* Client is in Pub/Sub mode. */
 #define CLIENT_PREVENT_AOF_PROP (1<<19)  /* Don't propagate to AOF. */
+//不传播给slave
 #define CLIENT_PREVENT_REPL_PROP (1<<20)  /* Don't propagate to slaves. */
 #define CLIENT_PREVENT_PROP (CLIENT_PREVENT_AOF_PROP|CLIENT_PREVENT_REPL_PROP)
 #define CLIENT_PENDING_WRITE (1<<21) /* Client has output to send but a write
@@ -920,11 +926,14 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     /**
      * @brief 上次交互的时间，用于判断超时
+     * 以及无盘复制时延迟5秒执行bgsave
      */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     /**
-     * @brief client的类型
+     * 客户端的标志位，记录客户端的角色，以及客户端所处的状态
+     *  可以是单个标志，也可以是多个标志的二进制或
+     *
      * CLIENT_TYPE_NORMAL  0 正常的请求回复客户端+MONITORs
      * CLIENT_TYPE_SLAVE  1 slaves，应该在主从同步过程中使用
      * CLIENT_TYPE_PUBSUB 2 订阅发布client
@@ -945,7 +954,7 @@ typedef struct client {
      */
     long long read_reploff; /* Read replication offset if this is a master. */
     /**
-     *  如果是master节点，表示的是当前客户端的应用偏移量
+     *  如果是slave节点，表示master节点的复制偏移量
      */
     long long reploff;      /* Applied replication offset if this is a master. */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
@@ -1274,6 +1283,7 @@ struct redisServer {
     double stat_fork_rate;          /* Fork rate in GB/sec. */
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
     long long stat_sync_full;       /* Number of full resyncs with slaves. */
+    //统计接收到的psync的次数
     long long stat_sync_partial_ok; /* Number of accepted PSYNC requests. */
     long long stat_sync_partial_err;/* Number of unaccepted PSYNC requests. */
     list *slowlog;                  /* SLOWLOG list of commands */
@@ -1458,6 +1468,7 @@ struct redisServer {
     int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
     int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
+    //无盘主从复制延迟时间
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
     //用于和主库进行验证的密码

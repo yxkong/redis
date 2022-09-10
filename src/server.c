@@ -2865,6 +2865,7 @@ int processCommand(client *c) {
      * such as wrong arity, bad command name and so forth. */
      //从server.commands字典里查询命令执行命令的映射,c->argv[0]为命令名称
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
+    //校验命令是否存在，是否
     if (!c->cmd) {
         //未知命令处理逻辑
         flagTransaction(c);
@@ -2897,7 +2898,7 @@ int processCommand(client *c) {
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
-    //集群处理，如果不在本机器，需要重定向
+    //如果是集群，槽点不在本节点，且没有宕机会返回给客户端一个moved命令
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
@@ -2907,8 +2908,10 @@ int processCommand(client *c) {
     {
         int hashslot;
         int error_code;
+        //根据key获取hash槽对应的节点
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &hashslot,&error_code);
+        //和当前不相等，就返回moved
         if (n == NULL || n != server.cluster->myself) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
@@ -2978,7 +2981,13 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if there are not enough good slaves and
      * user configured the min-slaves-to-write option. */
-    //如果从节点小于配置的min-slaves-to-write option，也不能执行写命令，这块防止了脑裂
+    /**
+     * 防止脑裂的操作
+     * 如果从节点小于配置的min-slaves-to-write option，也不能执行写命令，这块防止了脑裂
+     *  repl_min_slaves_to_write  最小写入个数
+     *  repl_min_slaves_max_lag 最大延迟时间大于（默认）10秒
+     */
+
     if (server.masterhost == NULL &&
         server.repl_min_slaves_to_write &&
         server.repl_min_slaves_max_lag &&
@@ -3026,7 +3035,7 @@ int processCommand(client *c) {
 
     /* Loading DB? Return an error if the command has not the
      * CMD_LOADING flag. */
-    //在持久化操作，直接拒绝
+    //在加载DB，一般是加载RDB文件，直接拒绝，这里如果是slave节点接收到RDB文件进行恢复的时候，不会接收其他命令的
     if (server.loading && !(c->cmd->flags & CMD_LOADING)) {
         addReply(c, shared.loadingerr);
         return C_OK;

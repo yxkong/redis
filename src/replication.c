@@ -202,7 +202,8 @@ void feedReplicationBacklogWithObject(robj *o) {
 /**
  * 命令传播
  * 将写命令传播到slave端，
- *  master服务对应的客户端接收到的命令来创建伏直流
+ * 将写命令传播到从服务器，并填充复制积压。如果实例是主实例，则使用此函数:我们使用客户端接收到的命令来创建复制流。
+ * 相反，如果实例是一个slave并且附加了子slave，我们使用replicationFeedSlavesFromMaster()
  * @param slaves 从库链表
  * @param dictid 默认-1
  * @param argv 参数数组
@@ -233,7 +234,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     /* Send SELECT command to every slave if needed. */
     /**
      * 正常情况下应该相等
-     * 只有主从异常时才会不相等，而且从调用到这，间隔时间可以忽略不计
+     * 只有主从异常时才会不相等，而且slave调用到这，间隔时间可以忽略不计
      *
      */
     if (server.slaveseldb != dictid) {
@@ -253,7 +254,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         /* Add the SELECT command into the backlog. */
-        // 添加到背压
+        // 添加SELECT命令到背压
         if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
 
         /* Send it to slaves. */
@@ -270,14 +271,20 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     server.slaveseldb = dictid;
 
     /* Write the command to the replication backlog if any. */
+    /**
+     * 添加执行命令到背压中
+     */
     if (server.repl_backlog) {
+        //定义long字符串
         char aux[LONG_STR_SIZE+3];
 
         /* Add the multi bulk reply length. */
+        //添加批量恢复长度（根据协议以*开头\r\n结束）
         aux[0] = '*';
         len = ll2string(aux+1,sizeof(aux)-1,argc);
         aux[len+1] = '\r';
         aux[len+2] = '\n';
+        //将长度添加到背压里
         feedReplicationBacklog(aux,len+3);
 
         for (j = 0; j < argc; j++) {
@@ -323,7 +330,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
  * to our sub-slaves. */
 #include <ctype.h>
 /**
- * 从master的流里，复制并传输给所有的slaves节点
+ * 从master接收到的信息以后，同步给其他的子-slave,想到slave作为中继节点以后处理的
  * @param slaves 所有的slave节点
  * @param buf  当前客户端的缓冲区
  * @param buflen 长度
@@ -341,15 +348,15 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
         }
         printf("\n");
     }
-    //背压，默认为null
+    //背压，默认为null，psync以后就开启
     if (server.repl_backlog) feedReplicationBacklog(buf,buflen);
-    //遍历所有的从节点，并投递过去
+    //遍历所有的从节点，并将需要同步的数据加入到客户端的缓冲区中
     listRewind(slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
         /* Don't feed slaves that are still waiting for BGSAVE to start */
-        //进入psync 就改成了这个状态 SLAVE_STATE_WAIT_BGSAVE_START
+        //进入psync 就改成了这个状态 SLAVE_STATE_WAIT_BGSAVE_START，bgsave启动后就改成 SLAVE_STATE_WAIT_BGSAVE_END
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
         //将命令写入到客户端的buf队列里，等到下一次beforeSleep 通过handleClientsWithPendingWrites
         addReplyString(slave,buf,buflen);
@@ -524,13 +531,14 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
  * On success return C_OK, otherwise C_ERR is returned and we proceed
  * with the usual full resync. */
 /**
- * 决定是全量还是增量
+ * 决定是全量还是增量（master执行）
  * @param c
  * @return
  */
 int masterTryPartialResynchronization(client *c) {
     //psync 传递过来的偏移量和大小
     long long psync_offset, psync_len;
+    //传递过来的runid,如果相同代表之前是同一台机器同步过来的
     char *master_replid = c->argv[1]->ptr;
     char buf[128];
     int buflen;
@@ -554,6 +562,7 @@ int masterTryPartialResynchronization(client *c) {
          psync_offset > server.second_replid_offset))
     {
         /* Run id "?" is used by slaves that want to force a full resync. */
+        //等于？ 就全量
         if (master_replid[0] != '?') {
             if (strcasecmp(master_replid, server.replid) &&
                 strcasecmp(master_replid, server.replid2))
@@ -760,6 +769,7 @@ void syncCommand(client *c) {
      * if the connection with the master is lost. */
     /**
      * psync 命令处理，决定是全量复制还是增量复制
+     *    strcasecmp 比较两个字符串是否相同，相同返回0，0为false
      */
     if (!strcasecmp(c->argv[0]->ptr,"psync")) {
         //增量同步，还是全量同步判断逻辑
@@ -863,7 +873,10 @@ void syncCommand(client *c) {
             /* Diskless replication RDB child is created inside
              * replicationCron() since we want to delay its start a
              * few seconds to wait for more slaves to arrive. */
-            //无磁盘复制RDB子进程是在replicationCron()中创建的,下次serverCron执行replicationCron的时候，
+            /**
+             *  无磁盘复制RDB子进程是在replicationCron()中创建的,下次serverCron执行replicationCron的时候，
+             */
+
             if (server.repl_diskless_sync_delay)
                 serverLog(LL_NOTICE,"Delay next BGSAVE for diskless SYNC");
         } else {
@@ -930,6 +943,9 @@ void replconfCommand(client *c) {
             else if (!strcasecmp(c->argv[j+1]->ptr,"psync2"))
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
+            /**
+             * slave 发送过来的  replconf ack 命令
+             */
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
              * internal only command that normal clients should never use. */
@@ -1400,7 +1416,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     //设置读取的长度
     server.repl_transfer_read += nread;
 
-    /* Delete the last 40 bytes from the file if we reached EOF. */
+    /* Delete the last 40 bytes from the file if we reached EOF.
+     * 删除前后40字节的数据
+     * */
     if (usemark && eof_reached) {
         if (ftruncate(server.repl_transfer_fd,
             server.repl_transfer_read - CONFIG_RUN_ID_SIZE) == -1)
@@ -1461,6 +1479,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         //将临时rdb文件改成rdb的文件名
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> REPLICA synchronization: %s", strerror(errno));
+            //取消握手
             cancelReplicationHandshake();
             return;
         }
@@ -2334,7 +2353,8 @@ void replicationHandleMasterDisconnection(void) {
 /**
  *  salve上执行
  *  replicaof masterip masterport
- *
+ *  replicaof no one
+ *  replicaof ack
  */
 void replicaofCommand(client *c) {
     /* SLAVEOF is not allowed in cluster mode as replication is automatically
@@ -2463,6 +2483,11 @@ void roleCommand(client *c) {
 /* Send a REPLCONF ACK command to the master to inform it about the current
  * processed offset. If we are not connected with a master, the command has
  * no effects. */
+/**
+ * slave 执行
+ * replicationCron
+ *   里每个轮训调用一次，发送一次 REPLCONF ack，并把自己的保存的master偏移量发送给master
+ */
 void replicationSendAck(void) {
     client *c = server.master;
 
@@ -3105,7 +3130,10 @@ void replicationCron(void) {
                                             (mincapa & slave->slave_capa);
             }
         }
-
+        /**
+         * 无盘复制，默认需要延迟 repl_diskless_sync_delay 5秒后才会执行bgsave
+         * 无盘复制中，一旦开始，再次到达的节点就会排队等待全量复制，减少磁盘IO
+         */
         if (slaves_waiting &&
             (!server.repl_diskless_sync ||
              max_idle > server.repl_diskless_sync_delay))

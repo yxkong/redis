@@ -1461,7 +1461,7 @@ int processMultibulkBuffer(client *c) {
         /**
          *  处理  *3\r\n$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
          *  newline就是\r 第一次出现的内存位置\r\n$3\r\nset\r\n$6\r\n5ycode\r\n$6\r\nyxkong\r\n
-         *  第一次newline 就是
+         *  第一次newline 就是定位到行尾
          */
         newline = strchr(c->querybuf+c->qb_pos,'\r');
         if (newline == NULL) {
@@ -1520,7 +1520,7 @@ int processMultibulkBuffer(client *c) {
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
-    //根据参数长度解析参数
+    //遍历每个请求参数
     while(c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
@@ -1629,10 +1629,10 @@ int processMultibulkBuffer(client *c) {
                 robj *ro = createStringObject(c->querybuf+c->qb_pos,c->bulklen);
                 c->argv[c->argc++] = ro;
                 //添加日志
-                if (sdsEncodedObject(ro)){
-                    sds s = ro->ptr;
-                    serverLog(LL_WARNING, "processMultibulkBuffer param:%s  type:%d",s,s[-1]);
-                }
+//                if (sdsEncodedObject(ro)){
+//                    sds s = ro->ptr;
+//                    serverLog(LL_WARNING, "processMultibulkBuffer param:%s  type:%d",s,s[-1]);
+//                }
 
                 c->qb_pos += c->bulklen+2;
             }
@@ -1711,12 +1711,14 @@ void processInputBuffer(client *c) {
         }
         /**
          * @brief 根据不同类型从缓冲区读取数据,并将客户端执行内容解析到成robj并出入c->argv
+         *
+         * 处理telnet 方式的内联命令
          */
         if (c->reqtype == PROTO_REQ_INLINE) {
             //单行任务理逻辑，单行，直接读取一行
             if (processInlineBuffer(c) != C_OK) break;
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
-            //单机断点走的这里
+            //单机断点走的这里，解析命令参数和长度暂存到客户端缓冲区
             if (processMultibulkBuffer(c) != C_OK) break;
         } else {
             serverPanic("Unknown request type");
@@ -1729,6 +1731,7 @@ void processInputBuffer(client *c) {
             /* Only reset the client when the command was executed. */
             //执行命令
             if (processCommand(c) == C_OK) {
+                //master节点的时候，才会改变  c->replof
                 if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
                     /* Update the applied replication offset of our master. */
                     /**
@@ -1766,19 +1769,37 @@ void processInputBuffer(client *c) {
  * the replication forwarding to the sub-slaves, in case the client 'c'
  * is flagged as master. Usually you want to call this instead of the
  * raw processInputBuffer(). */
+/**
+ * processInputBuffer 包装器，
+ *  通过应用程序过来 flags=0
+ *
+ * @param c  链接的客户端
+ */
 void processInputBufferAndReplicate(client *c) {
-    //非master节点,单机走这里
+    serverLog(LL_NOTICE,"processInputBufferAndReplicate, flag=%d.",c->flags);
+    /**
+     * 默认进来为0
+     * 利用 and 2，只有flags=2的时候才会为2，2为true，取反为false
+     * flags!=2的时候 &2都为0，取反为true
+     */
     if (!(c->flags & CLIENT_MASTER)) {
+        serverLog(LL_NOTICE,"processInputBufferAndReplicate, if ");
         //处理输入缓冲区
         processInputBuffer(c);
     } else {
-        //master节点处理
-        //获取客户端的的应用偏移量（在没有加上当前这条命令之前的偏移量）
+        /**
+         * 只有标记为2的时候走这里，
+         *   客户端是master，代表本server是slave节点
+         *   slave节点的时候，会把master的信息投递给
+         */
+        //获取master节点的应用偏移量（在没有加上当前这条命令之前的偏移量）
         size_t prev_offset = c->reploff;
         processInputBuffer(c);
         //当前的客户端的应用位移-之前的应用位移，就是数据长度
         size_t applied = c->reploff - prev_offset;
-        //有数据主从复制
+        /**
+         * master客户端调用过来的时候，才会执行这里
+         */
         if (applied) {
             replicationFeedSlavesFromMasterStream(server.slaves,
                     c->pending_querybuf, applied);
@@ -1864,7 +1885,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     sdsIncrLen(c->querybuf,nread);
     //设置客户端的最后操作时间
     c->lastinteraction = server.unixtime;
-    //将读取到的命令长度，添加到客户端的偏移量上
+    //（只有master传递过来的信息才会这么处理）将读取到的命令长度，添加到客户端的偏移量上
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
     //累计读取的长度
     server.stat_net_input_bytes += nread;

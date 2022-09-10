@@ -135,14 +135,14 @@ void setCommand(client *c) {
         }
     }
     sds s =c->argv[2]->ptr;
-    serverLog(LL_WARNING, "setCommand tryObjectEncoding before  param:%s  type:%d",s,s[-1]);
+//    serverLog(LL_WARNING, "setCommand tryObjectEncoding before  param:%s  type:%d",s,s[-1]);
     //尝试编码，并优化空间，针对value，
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     s =c->argv[2]->ptr;
-    serverLog(LL_WARNING, "setCommand tryObjectEncoding after param:%s  type:%d",s,s[-1]);
+//    serverLog(LL_WARNING, "setCommand tryObjectEncoding after param:%s  type:%d",s,s[-1]);
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
     s =c->argv[2]->ptr;
-    serverLog(LL_WARNING, "setCommand setGenericCommand after param:%s  type:%d",s,s[-1]);
+//    serverLog(LL_WARNING, "setCommand setGenericCommand after param:%s  type:%d",s,s[-1]);
 
 }
 

@@ -438,7 +438,7 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
 
     x = zsl->header;
     //从上到下遍历所有的层级，定位到最小的元素
-    for (i = zsl->level-1; i >= 0; i--) {m
+    for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *OUT* of range. */
         //定位最小元素所在的位置
         while (x->level[i].forward &&
